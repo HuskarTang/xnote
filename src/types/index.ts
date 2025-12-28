@@ -9,6 +9,7 @@ export interface Note {
   is_deleted: boolean
   tags: string[]
   has_attachments: boolean
+  attachments: string[]
 }
 
 export interface Tag {
@@ -20,6 +21,7 @@ export interface Tag {
 export interface CreateNoteRequest {
   title: string
   content?: string
+  tags?: string[]
 }
 
 export interface UpdateNoteRequest {

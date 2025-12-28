@@ -1,10 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use anyhow::{Result, Context};
+use crate::models::NoteMetadata;
+use chrono::{DateTime, Utc};
 
 #[derive(Clone)]
 pub struct FileStorageManager {
-    notes_directory: PathBuf,
+    pub notes_directory: PathBuf,
 }
 
 impl FileStorageManager {
@@ -17,69 +19,89 @@ impl FileStorageManager {
             notes_directory,
         })
     }
-    
-    pub fn create_note_file(&self, title: &str, content: &str) -> Result<String> {
-        let base_name = self.sanitize_filename(title);
-        let mut attempts = 0;
-        let max_attempts = 1000;
+
+    pub fn parse_note(&self, file_name: &str) -> Result<(NoteMetadata, String)> {
+        let file_path = self.notes_directory.join(file_name);
+        let content = fs::read_to_string(&file_path)?;
         
-        loop {
-            let file_name = if attempts == 0 {
-                format!("{}.md", base_name)
-            } else {
-                format!("{}({}).md", base_name, attempts)
-            };
-            
-            let file_path = self.notes_directory.join(&file_name);
-            
-            // Try to create file exclusively (fails if exists)
-            match fs::OpenOptions::new()
-                .create_new(true)  // Fails if file already exists
-                .write(true)
-                .open(&file_path)
-            {
-                Ok(mut file) => {
-                    // Successfully created file, write content
-                    use std::io::Write;
-                    file.write_all(content.as_bytes())
-                        .context("Failed to write note content")?;
-                    return Ok(file_name);
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                    // File exists, try next number
-                    attempts += 1;
-                    if attempts > max_attempts {
-                        return Err(anyhow::anyhow!("Failed to generate unique file name after {} attempts", max_attempts));
+        if content.starts_with("---") {
+            if let Some(end_idx) = content[3..].find("---") {
+                let yaml_start = 3;
+                let yaml_end = end_idx + 3;
+                let yaml_str = content[yaml_start..yaml_end].trim();
+                
+                let mut body_start = yaml_end + 3;
+                if content.len() > body_start {
+                    if content[body_start..].starts_with("\r\n") {
+                        body_start += 2;
+                    } else if content[body_start..].starts_with('\n') {
+                        body_start += 1;
                     }
-                    continue;
                 }
-                Err(e) => {
-                    return Err(anyhow::anyhow!("Failed to create file: {}", e));
+                
+                let body = if body_start < content.len() {
+                    &content[body_start..]
+                } else {
+                    ""
+                };
+                
+                match serde_yaml::from_str::<NoteMetadata>(yaml_str) {
+                    Ok(mut metadata) => {
+                        if metadata.id.is_empty() {
+                            metadata.id = uuid::Uuid::new_v4().to_string();
+                        }
+                        return Ok((metadata, body.to_string()));
+                    },
+                    Err(e) => {
+                        return Err(anyhow::anyhow!("Failed to parse YAML header in {}: {}", file_name, e));
+                    }
                 }
             }
         }
-    }
-    
-    pub fn read_note_file(&self, file_name: &str) -> Result<String> {
-        let file_path = self.notes_directory.join(file_name);
         
-        if !file_path.exists() {
-            return Err(anyhow::anyhow!("Note file does not exist: {}", file_name));
+        // Fallback for files without front matter: generate header and save back
+        let file_sys_metadata = fs::metadata(&file_path)?;
+        let created_time: DateTime<Utc> = file_sys_metadata.created().unwrap_or(std::time::SystemTime::now()).into();
+        let modified_time: DateTime<Utc> = file_sys_metadata.modified().unwrap_or(std::time::SystemTime::now()).into();
+
+        let mut title = self.extract_title_from_file_name(file_name);
+        if let Some(first_line) = content.lines().next() {
+            if first_line.starts_with("# ") {
+                let h1_title = first_line[2..].trim();
+                if !h1_title.is_empty() {
+                    title = h1_title.to_string();
+                }
+            }
         }
-        
-        fs::read_to_string(&file_path)
-            .context("Failed to read note file")
+
+        let new_metadata = NoteMetadata {
+            id: uuid::Uuid::new_v4().to_string(),
+            title,
+            tags: vec![],
+            attachments: vec![],
+            created: created_time.to_rfc3339(),
+            modified: modified_time.to_rfc3339(),
+            favorite: false,
+            deleted: false,
+        };
+
+        self.save_note(file_name, &new_metadata, &content)?;
+
+        Ok((new_metadata, content))
     }
-    
-    pub fn update_note_file(&self, file_name: &str, content: &str) -> Result<()> {
+
+    pub fn save_note(&self, file_name: &str, metadata: &NoteMetadata, content: &str) -> Result<()> {
         let file_path = self.notes_directory.join(file_name);
+        let yaml = serde_yaml::to_string(metadata)?;
+        // Ensure there are newlines around YAML markers
+        let full_content = format!("---\n{}---\n\n{}", yaml, content);
         
-        if !file_path.exists() {
-            return Err(anyhow::anyhow!("Note file does not exist: {}", file_name));
-        }
+        // Use atomic write: write to temp file then rename
+        let temp_path = file_path.with_extension("tmp");
+        fs::write(&temp_path, full_content)?;
+        fs::rename(&temp_path, &file_path)?;
         
-        fs::write(&file_path, content)
-            .context("Failed to update note file")
+        Ok(())
     }
     
     pub fn rename_note_file(&self, old_file_name: &str, new_title: &str) -> Result<String> {
@@ -157,8 +179,6 @@ impl FileStorageManager {
                 
                 let file_info = FileInfo {
                     name: file_name,
-                    size: metadata.len(),
-                    created: metadata.created().ok(),
                     modified: metadata.modified().ok(),
                 };
                 
@@ -173,50 +193,7 @@ impl FileStorageManager {
         Ok(files)
     }
     
-    pub fn get_file_content_preview(&self, file_name: &str, max_chars: usize) -> Result<String> {
-        let content = self.read_note_file(file_name)?;
-        
-        if content.len() <= max_chars {
-            Ok(content)
-        } else {
-            Ok(content.chars().take(max_chars).collect::<String>() + "...")
-        }
-    }
-    
-    pub fn search_files_content(&self, query: &str) -> Result<Vec<SearchResult>> {
-        let mut results = Vec::new();
-        let files = self.scan_existing_files()?;
-        
-        for file in files {
-            let content = match self.read_note_file(&file.name) {
-                Ok(content) => content,
-                Err(_) => continue,
-            };
-            
-            let title = self.extract_title_from_file_name(&file.name);
-            
-            // Search in title and content
-            if title.to_lowercase().contains(&query.to_lowercase()) ||
-               content.to_lowercase().contains(&query.to_lowercase()) {
-                
-                let preview = self.generate_search_preview(&content, query, 100);
-                
-                results.push(SearchResult {
-                    file_name: file.name,
-                    title: title.clone(),
-                    preview,
-                    relevance_score: self.calculate_relevance(&title, &content, query),
-                });
-            }
-        }
-        
-        // Sort by relevance
-        results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap());
-        
-        Ok(results)
-    }
-    
-    fn generate_unique_file_path(&self, title: &str) -> Result<PathBuf> {
+    pub fn generate_unique_file_path(&self, title: &str) -> Result<PathBuf> {
         let base_name = self.sanitize_filename(title);
         let mut file_path = self.notes_directory.join(format!("{}.md", base_name));
         
@@ -235,26 +212,6 @@ impl FileStorageManager {
             
             if counter > 1000 {
                 return Err(anyhow::anyhow!("Failed to generate unique file path"));
-            }
-        }
-    }
-    
-    // New method to create a file atomically and ensure uniqueness
-    fn create_file_atomically(&self, target_path: &Path, content: &str) -> Result<()> {
-        // Create a temporary file first
-        let temp_path = target_path.with_extension("tmp");
-        
-        // Write to temporary file
-        fs::write(&temp_path, content)
-            .context("Failed to write temporary file")?;
-        
-        // Try to rename to target (atomic operation)
-        match fs::rename(&temp_path, target_path) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                // Clean up temporary file if rename failed
-                let _ = fs::remove_file(&temp_path);
-                Err(anyhow::anyhow!("Failed to create file atomically: {}", e))
             }
         }
     }
@@ -292,73 +249,12 @@ impl FileStorageManager {
             .to_string_lossy()
             .to_string()
     }
-    
-    fn generate_search_preview(&self, content: &str, query: &str, max_chars: usize) -> String {
-        let query_lower = query.to_lowercase();
-        let content_lower = content.to_lowercase();
-        
-        if let Some(pos) = content_lower.find(&query_lower) {
-            let start = pos.saturating_sub(max_chars / 2);
-            let end = (pos + query.len() + max_chars / 2).min(content.len());
-            
-            let preview = &content[start..end];
-            
-            if start > 0 {
-                format!("...{}", preview)
-            } else if end < content.len() {
-                format!("{}...", preview)
-            } else {
-                preview.to_string()
-            }
-        } else {
-            // If query word not found, return beginning part
-            if content.len() <= max_chars {
-                content.to_string()
-            } else {
-                format!("{}...", &content[..max_chars])
-            }
-        }
-    }
-    
-    fn calculate_relevance(&self, title: &str, content: &str, query: &str) -> f64 {
-        let query_lower = query.to_lowercase();
-        let title_lower = title.to_lowercase();
-        let content_lower = content.to_lowercase();
-        
-        let mut score = 0.0;
-        
-        // Title match scores higher
-        if title_lower.contains(&query_lower) {
-            score += 10.0;
-            
-            // Exact match scores highest
-            if title_lower == query_lower {
-                score += 50.0;
-            }
-        }
-        
-        // Content match
-        let content_matches = content_lower.matches(&query_lower).count();
-        score += content_matches as f64;
-        
-        score
-    }
 }
 
 #[derive(Debug, Clone)]
 pub struct FileInfo {
     pub name: String,
-    pub size: u64,
-    pub created: Option<std::time::SystemTime>,
     pub modified: Option<std::time::SystemTime>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SearchResult {
-    pub file_name: String,
-    pub title: String,
-    pub preview: String,
-    pub relevance_score: f64,
 }
 
 #[cfg(test)]
@@ -374,6 +270,19 @@ mod tests {
         assert!(temp_dir.path().exists());
     }
     
+    fn create_test_note_metadata(title: &str) -> NoteMetadata {
+        NoteMetadata {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: title.to_string(),
+            tags: vec![],
+            attachments: vec![],
+            created: Utc::now().to_rfc3339(),
+            modified: Utc::now().to_rfc3339(),
+            favorite: false,
+            deleted: false,
+        }
+    }
+
     #[test]
     fn test_note_file_operations() {
         let temp_dir = TempDir::new().unwrap();
@@ -381,26 +290,41 @@ mod tests {
         
         let title = "Test Note";
         let content = "# Test Note\n\nThis is a test note.";
+        let metadata = create_test_note_metadata(title);
         
-        // Create file
-        let file_name = storage.create_note_file(title, content).unwrap();
-        assert!(file_name.ends_with(".md"));
+        // Save note (create)
+        storage.save_note("Test Note.md", &metadata, content).unwrap();
         
-        // Read file
-        let read_content = storage.read_note_file(&file_name).unwrap();
+        // Read note (parse)
+        let (read_metadata, read_content) = storage.parse_note("Test Note.md").unwrap();
         assert_eq!(read_content, content);
-        
-        // Update file
-        let new_content = "# Updated Test Note\n\nThis is an updated test note.";
-        storage.update_note_file(&file_name, new_content).unwrap();
-        
-        let updated_content = storage.read_note_file(&file_name).unwrap();
-        assert_eq!(updated_content, new_content);
+        assert_eq!(read_metadata.title, title);
         
         // Scan files
         let files = storage.scan_existing_files().unwrap();
         assert_eq!(files.len(), 1);
-        assert_eq!(files[0].name, file_name);
+        assert_eq!(files[0].name, "Test Note.md");
+    }
+
+    #[test]
+    fn test_note_metadata_operations() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FileStorageManager::new(temp_dir.path().to_path_buf()).unwrap();
+        
+        let title = "Metadata Note";
+        let content = "# Header\n\nContent.";
+        let mut metadata = create_test_note_metadata(title);
+        metadata.tags = vec!["tag1".to_string()];
+        metadata.favorite = true;
+        
+        storage.save_note("meta.md", &metadata, content).unwrap();
+        
+        let (parsed_metadata, parsed_content) = storage.parse_note("meta.md").unwrap();
+        
+        assert_eq!(parsed_metadata.title, title);
+        assert_eq!(parsed_metadata.favorite, true);
+        assert_eq!(parsed_metadata.tags[0], "tag1");
+        assert_eq!(parsed_content, content);
     }
     
     #[test]
@@ -420,30 +344,13 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let storage = FileStorageManager::new(temp_dir.path().to_path_buf()).unwrap();
         
+        let metadata = create_test_note_metadata("Test");
+
         // Create first file
-        let file1 = storage.create_note_file("Test", "Content 1").unwrap();
-        assert_eq!(file1, "Test.md");
+        storage.save_note("Test.md", &metadata, "Content 1").unwrap();
         
-        // Create file with same name, should have number suffix
-        let file2 = storage.create_note_file("Test", "Content 2").unwrap();
-        assert_eq!(file2, "Test(1).md");
-    }
-    
-    #[test]
-    fn test_content_search() {
-        let temp_dir = TempDir::new().unwrap();
-        let storage = FileStorageManager::new(temp_dir.path().to_path_buf()).unwrap();
-        
-        // Create test files
-        storage.create_note_file("First Note", "This is about programming").unwrap();
-        storage.create_note_file("Second Note", "This discusses programming languages").unwrap();
-        storage.create_note_file("Third Note", "This is about cooking").unwrap();
-        
-        // Search
-        let results = storage.search_files_content("programming").unwrap();
-        assert_eq!(results.len(), 2);
-        
-        // Verify relevance sorting
-        assert!(results[0].relevance_score >= results[1].relevance_score);
+        // Generate path for same title
+        let path = storage.generate_unique_file_path("Test").unwrap();
+        assert_eq!(path.file_name().unwrap().to_str().unwrap(), "Test(1).md");
     }
 }

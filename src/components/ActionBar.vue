@@ -9,7 +9,7 @@
         title="View mode"
         data-tauri-drag-region="false"
       >
-        👁️
+        <Icons name="view" :size="16" />
       </button>
       <button 
         class="action-button"
@@ -18,7 +18,7 @@
         title="Edit mode"
         data-tauri-drag-region="false"
       >
-        ✏️
+        <Icons name="edit" :size="16" />
       </button>
       <button 
         class="action-button"
@@ -27,7 +27,7 @@
         title="Split mode"
         data-tauri-drag-region="false"
       >
-        📱
+        <Icons name="split" :size="16" />
       </button>
     </div>
 
@@ -43,7 +43,7 @@
         title="Toggle favorite"
         data-tauri-drag-region="false"
       >
-        ⭐
+        <Icons name="favorite" :size="16" />
       </button>
       <button 
         class="action-button"
@@ -51,7 +51,7 @@
         title="Manage tags"
         data-tauri-drag-region="false"
       >
-        🏷️
+        <Icons name="tag" :size="16" />
       </button>
       <button 
         class="action-button"
@@ -59,7 +59,7 @@
         title="Manage attachments"
         data-tauri-drag-region="false"
       >
-        📎
+        <Icons name="attachment" :size="16" />
       </button>
       <button 
         class="action-button delete-button"
@@ -68,7 +68,7 @@
         :title="deleteButtonTitle"
         data-tauri-drag-region="false"
       >
-        {{ deleteButtonIcon }}
+        <Icons :name="isInTrashView ? 'permanent-delete' : 'delete'" :size="16" />
       </button>
       <!-- 恢复按钮 (仅在垃圾桶视图显示) -->
       <button 
@@ -78,7 +78,7 @@
         title="Restore note"
         data-tauri-drag-region="false"
       >
-        ↩️
+        <Icons name="restore" :size="16" />
       </button>
       <button 
         class="action-button"
@@ -86,7 +86,7 @@
         title="Export note"
         data-tauri-drag-region="false"
       >
-        📤
+        <Icons name="export" :size="16" />
       </button>
     </div>
 
@@ -107,22 +107,25 @@
     <!-- 附件管理弹窗 -->
     <AttachmentManager
       :visible="attachmentManagerVisible"
-      :note-id="currentNote?.id || null"
+      :note-id="currentNote?.id || undefined"
       @close="attachmentManagerVisible = false"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, markRaw } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAppStore } from '@/stores/app'
 import { useNotesStore } from '@/stores/notes'
 import { useTagsStore } from '@/stores/tags'
-import { ask, message } from '@tauri-apps/api/dialog'
+import { message } from '@tauri-apps/api/dialog'
 import { invoke } from '@tauri-apps/api/tauri'
+import { ElMessageBox, ElMessage } from 'element-plus'
+import { Delete, WarningFilled } from '@element-plus/icons-vue'
 import TagManager from './TagManager.vue'
 import AttachmentManager from './AttachmentManager.vue'
+import Icons from '@/components/Icons.vue'
 import type { Tag } from '@/types'
 
 const appStore = useAppStore()
@@ -141,8 +144,7 @@ const attachmentManagerVisible = ref(false)
 // 计算当前是否在垃圾桶视图
 const isInTrashView = computed(() => selectedTag.value === 'Trash')
 
-// 计算删除按钮的图标和标题
-const deleteButtonIcon = computed(() => isInTrashView.value ? '🔥' : '🗑️')
+// 计算删除按钮的标题
 const deleteButtonTitle = computed(() => isInTrashView.value ? 'Permanently delete note' : 'Move to trash')
 
 const setViewMode = (mode: 'view' | 'edit' | 'split') => {
@@ -165,25 +167,50 @@ const deleteNote = async () => {
   if (!currentNote.value) return
   
   const isTrash = isInTrashView.value
-  const actionText = isTrash ? 'permanently delete' : 'delete'
-  const warningText = isTrash 
-    ? 'This action cannot be undone. The note and its file will be permanently deleted.'
-    : 'The note will be moved to trash.'
+  const noteTitle = currentNote.value.title || 'Untitled'
   
-  const confirmed = await ask(
-    `Are you sure you want to ${actionText} "${currentNote.value.title}"?\n${warningText}`,
-    { title: 'XNote', type: 'warning' }
-  )
-  
-  if (confirmed) {
-    try {
-      if (isTrash) {
-        await notesStore.permanentlyDeleteNote(currentNote.value.id)
-      } else {
-        await notesStore.deleteNote(currentNote.value.id)
-      }
-    } catch (err) {
-      console.error(`Failed to ${actionText} note:`, err)
+  try {
+    if (isTrash) {
+      // 永久删除
+      await ElMessageBox.confirm(
+        `此操作将永久删除笔记 "${noteTitle}"，且无法恢复。是否继续？`,
+        '永久删除笔记',
+        {
+          confirmButtonText: '永久删除',
+          cancelButtonText: '取消',
+          type: 'warning',
+          icon: markRaw(WarningFilled),
+          confirmButtonClass: 'el-button--danger',
+          center: true,
+          draggable: true
+        }
+      )
+      
+      await notesStore.permanentlyDeleteNote(currentNote.value.id)
+      ElMessage.success('笔记已永久删除')
+    } else {
+      // 移至废纸篓
+      await ElMessageBox.confirm(
+        `确定要将笔记 "${noteTitle}" 移至废纸篓吗？`,
+        '移至废纸篓',
+        {
+          confirmButtonText: '移至废纸篓',
+          cancelButtonText: '取消',
+          type: 'warning',
+          icon: markRaw(Delete),
+          confirmButtonClass: 'el-button--danger',
+          center: true,
+          draggable: true
+        }
+      )
+      
+      await notesStore.deleteNote(currentNote.value.id)
+      ElMessage.success('笔记已移至废纸篓')
+    }
+  } catch (err) {
+    if (err !== 'cancel') {
+      console.error(`Failed to delete note:`, err)
+      ElMessage.error('删除失败')
     }
   }
 }
@@ -246,7 +273,7 @@ const exportNote = async () => {
     })
     
     // Show success message
-    await message(result, {
+    await message(result?.toString() || 'Export completed successfully', {
       title: 'Export Successful',
       type: 'info'
     })

@@ -108,7 +108,6 @@ xnote/
 ├── src-tauri/              # Backend Rust code
 │   ├── src/                # Rust source code
 │   │   ├── config/         # Configuration management
-│   │   ├── database/       # Database operations
 │   │   ├── notes/          # Note management
 │   │   ├── storage/        # File storage
 │   │   └── tags/           # Tag management

@@ -119,9 +119,10 @@ import { EditorState, Range } from '@codemirror/state'
 import { markdown } from '@codemirror/lang-markdown'
 import { indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, HighlightStyle } from '@codemirror/language'
 import { search, searchKeymap } from '@codemirror/search'
-import { defaultKeymap, indentWithTab } from '@codemirror/commands'
+import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirror/commands'
 import { tags } from '@lezer/highlight'
 import { invoke } from '@tauri-apps/api/tauri'
+import { ElMessage } from 'element-plus'
 import ImageManager from './ImageManager.vue'
 import AttachmentManager from './AttachmentManager.vue'
 
@@ -251,7 +252,7 @@ const createEditor = () => {
       saveTimeout = setTimeout(() => {
         console.log('Auto saving content:', content)
         emit('save', content)
-      }, 2000) // 2秒后自动保存
+      }, 1000) // 1秒后自动保存
     }
   })
 
@@ -285,6 +286,7 @@ const createEditor = () => {
     extensions: [
       // 基础扩展
       lineNumbers(),
+      history(),
       drawSelection(),
       indentOnInput(),
       bracketMatching(),
@@ -301,6 +303,7 @@ const createEditor = () => {
       keymap.of([
         ...defaultKeymap,
         ...searchKeymap,
+        ...historyKeymap,
         indentWithTab,
       ]),
       
@@ -487,7 +490,7 @@ const handleImagePaste = async (files: FileList) => {
         console.log('Image pasted and saved:', savedPath)
       } catch (error) {
         console.error('Failed to paste image:', error)
-        alert('Failed to paste image')
+        ElMessage.error('Failed to paste image')
       }
       break // 只处理第一个图片文件
     }
@@ -525,25 +528,28 @@ onUnmounted(() => {
   flex-direction: column;
   height: 100%;
   background-color: #ffffff;
+  border-top: 1px solid #e5e7eb;
+  overflow: hidden;
 }
 
 .toolbar {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
-  padding: 8px 16px;
-  background-color: #ffffff;
-  border-bottom: 1px solid #e5e5e5;
+  padding: 4px 12px;
+  background-color: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
   flex-wrap: wrap;
-  min-height: 48px;
+  min-height: 40px;
 }
 
 .toolbar-button {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   background-color: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 4px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -551,39 +557,40 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 500;
   transition: all 0.15s ease;
-  color: #6b7280;
+  color: #4b5563;
   position: relative;
 }
 
 .toolbar-button:hover {
-  background-color: #f3f4f6;
-  border-color: #e5e7eb;
-  color: #374151;
+  background-color: #ffffff;
+  border-color: #d1d5db;
+  color: #111827;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .toolbar-button:active {
-  background-color: #e5e7eb;
+  background-color: #f3f4f6;
   transform: translateY(1px);
 }
 
 .toolbar-button svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   fill: currentColor;
 }
 
 .heading-text {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
   color: currentColor;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .toolbar-separator {
   width: 1px;
-  height: 24px;
+  height: 18px;
   background-color: #e5e7eb;
-  margin: 0 6px;
+  margin: 0 4px;
   flex-shrink: 0;
 }
 

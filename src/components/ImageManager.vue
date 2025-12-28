@@ -64,7 +64,9 @@
         <div v-if="activeTab === 'upload'" class="tab-content">
           <div class="upload-area" @drop="handleDrop" @dragover.prevent @dragenter.prevent>
             <div v-if="!selectedFile" class="upload-placeholder">
-              <div class="upload-icon">📁</div>
+              <div class="upload-icon">
+                <Icons name="folder" :size="48" />
+              </div>
               <p>拖拽文件到这里，或点击选择文件</p>
               <input
                 ref="fileInput"
@@ -110,6 +112,8 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/tauri'
+import { ElMessage } from 'element-plus'
+import Icons from '@/components/Icons.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -238,7 +242,7 @@ const confirmInsert = async () => {
     closeDialog()
   } catch (error) {
     console.error('Failed to insert image:', error)
-    alert('插入图片失败')
+    ElMessage.error('插入图片失败')
   }
 }
 

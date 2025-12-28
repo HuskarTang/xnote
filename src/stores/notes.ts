@@ -75,9 +75,9 @@ export const useNotesStore = defineStore('notes', () => {
     }
   }
 
-  async function createNote(title: string, content?: string) {
+  async function createNote(title: string, content?: string, tags?: string[]) {
     try {
-      const note = await api.createNote({ title, content })
+      const note = await api.createNote({ title, content, tags })
       notes.value.unshift(note)
       currentNote.value = note
       // Emit an event or trigger a refresh to update the note list
@@ -106,6 +106,8 @@ export const useNotesStore = defineStore('notes', () => {
         }
         // 触发更新事件
         window.dispatchEvent(new CustomEvent('note-updated', { detail: updatedNote }))
+      } else {
+        throw new Error('Note not found or update failed')
       }
       return updatedNote
     } catch (err) {

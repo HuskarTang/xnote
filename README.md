@@ -38,8 +38,7 @@ XNote is a modern, cross-platform note-taking application built with Vue 3, Type
 - **Frontend**: Vue 3 + TypeScript + Vite
 - **Backend**: Rust (Tauri)
 - **Data Storage**: 
-  - Markdown files (.md)
-  - SQLite database (mdnote.db) for metadata and tags
+  - Markdown files (.md) with YAML Front Matter for metadata
   - Attachments directory for media files
 - **Configuration**: JSON format (config.json)
 
@@ -130,7 +129,6 @@ XNote uses a three-pane layout:
 ```
 mdnote/
 ├── config.json          # Application configuration
-├── mdnote.db           # SQLite database (tags, metadata)
 ├── attachments/        # Attached files and images
 └── *.md                # Markdown note files
 ```
@@ -178,10 +176,9 @@ xnote/
 ### Backend Modules
 
 1. **Config**: Application configuration management
-2. **Database**: SQLite database operations
-3. **Notes**: Note CRUD operations and file management
-4. **Storage**: File system operations
-5. **Tags**: Tag management and associations
+2. **Notes**: Note CRUD operations and file management
+3. **Storage**: File system operations
+4. **Tags**: Tag management and associations
 
 ### Running Tests
 

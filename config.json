@@ -1,0 +1,24 @@
+{
+  "data_directory": "/Users/huskar/Documents/ws-notable",
+  "window_width": 1200,
+  "window_height": 800,
+  "sidebar_width": 240,
+  "note_list_width": 320,
+  "auto_save_interval": 5000,
+  "log_config": {
+    "enabled": true,
+    "level": "info",
+    "max_days": 7,
+    "console_output": true
+  },
+  "theme": "light",
+  "git_sync": {
+    "enabled": true,
+    "repository_url": "ssh://git@www.veilnet.icu:2222/huskar/XNOTE-repo.git",
+    "branch": "main",
+    "username": "",
+    "password": "",
+    "ssh_key_path": "~/.ssh/id_rsa",
+    "auth_type": "ssh"
+  }
+}

@@ -7,49 +7,73 @@
     <div class="content-main">
       <!-- 无选中笔记时的空状态 -->
       <div v-if="!currentNote" class="empty-content">
-        <div class="empty-icon">📝</div>
+        <div class="empty-icon">
+          <Icons name="note" :size="64" />
+        </div>
         <h3>Select a note to get started</h3>
         <p>Choose a note from the list or create a new one to begin writing.</p>
       </div>
 
       <!-- 有选中笔记时的内容 -->
       <div v-else class="note-content">
-        <!-- 标题编辑区 -->
-        <div class="title-section">
-          <input
-            v-if="viewMode === 'edit' || viewMode === 'split'"
-            v-model="noteTitle"
-            type="text"
-            class="title-input"
-            placeholder="Note title..."
-            @blur="updateTitle"
-            @keyup.enter="updateTitle"
-          />
-          <h1 v-else class="title-display">
-            {{ currentNote.title || 'Untitled' }}
-          </h1>
-        </div>
-
         <!-- 内容区域 -->
         <div class="content-section" :class="contentSectionClass">
           <!-- 编辑模式 -->
-          <div v-if="viewMode === 'edit'" class="edit-pane-container">
-            <EditPane :content="currentNote?.content" :note-id="currentNote?.id" @update:content="handleContentUpdate" @save="handleAutoSave" />
+          <div v-if="viewMode === 'edit'" class="pane-wrapper edit-wrapper">
+            <div class="title-section">
+              <input
+                v-model="noteTitle"
+                type="text"
+                class="title-input"
+                placeholder="Note title..."
+                @blur="updateTitle"
+                @keyup.enter="updateTitle"
+              />
+            </div>
+            <div class="edit-pane-container">
+              <EditPane :content="currentNote?.content" :note-id="currentNote?.id" @update:content="handleContentUpdate" @save="handleAutoSave" />
+            </div>
           </div>
 
           <!-- 查看模式 -->
-          <div v-else-if="viewMode === 'view'" class="view-pane-container">
-            <ViewPane />
+          <div v-else-if="viewMode === 'view'" class="pane-wrapper view-wrapper">
+            <div class="title-section">
+              <h1 class="title-display">
+                {{ currentNote.title || 'Untitled' }}
+              </h1>
+            </div>
+            <div class="view-pane-container">
+              <ViewPane />
+            </div>
           </div>
 
           <!-- 分屏模式 -->
           <div v-else-if="viewMode === 'split'" class="split-pane-container">
-            <div class="edit-section">
-              <EditPane :content="splitContent" :note-id="currentNote?.id" @update:content="updateSplitContent" @save="handleAutoSave" />
+            <div class="split-half edit-half">
+              <div class="title-section">
+                <input
+                  v-model="noteTitle"
+                  type="text"
+                  class="title-input"
+                  placeholder="Note title..."
+                  @blur="updateTitle"
+                  @keyup.enter="updateTitle"
+                />
+              </div>
+              <div class="edit-pane-container">
+                <EditPane :content="splitContent" :note-id="currentNote?.id" @update:content="updateSplitContent" @save="handleAutoSave" />
+              </div>
             </div>
             <div class="split-divider"></div>
-            <div class="view-section">
-              <ViewPane :content="splitContent" />
+            <div class="split-half view-half">
+              <div class="title-section">
+                <h1 class="title-display">
+                  {{ noteTitle || 'Untitled' }}
+                </h1>
+              </div>
+              <div class="view-pane-container">
+                <ViewPane :content="splitContent" />
+              </div>
             </div>
           </div>
         </div>
@@ -73,6 +97,7 @@ import { useNotesStore } from '@/stores/notes'
 import ActionBar from '@/components/ActionBar.vue'
 import EditPane from '@/components/EditPane.vue'
 import ViewPane from '@/components/ViewPane.vue'
+import Icons from '@/components/Icons.vue'
 
 const appStore = useAppStore()
 const notesStore = useNotesStore()
@@ -104,8 +129,6 @@ const updateSplitContent = (content: string) => {
 
 // 处理内容更新（用于编辑模式下的实时预览）
 const handleContentUpdate = (content: string) => {
-  // 在编辑模式下，我们可以更新一个临时的内容变量用于预览
-  // 但不立即保存，而是依赖自动保存机制
 }
 
 // 自动保存处理
@@ -115,13 +138,10 @@ const handleAutoSave = async (content: string) => {
     return
   }
   
-  console.log('Auto saving note:', currentNote.value.id, content)
-  
   try {
     saveStatus.value = 'Saving...'
     await notesStore.updateNote(currentNote.value.id, { content })
     saveStatus.value = 'Saved'
-    console.log('Auto save completed')
   } catch (err) {
     saveStatus.value = 'Error saving'
     console.error('Failed to auto save note:', err)
@@ -136,14 +156,12 @@ const updateTitle = async () => {
     saveStatus.value = 'Saving...'
     const updatedNote = await notesStore.updateNote(currentNote.value.id, { title: noteTitle.value })
     if (updatedNote) {
-      // 如果标题因为冲突被修改了，更新输入框显示
       noteTitle.value = updatedNote.title
     }
     saveStatus.value = 'Saved'
   } catch (err) {
     saveStatus.value = 'Error saving'
     console.error('Failed to update title:', err)
-    // 发生错误时，恢复到原来的标题
     if (currentNote.value) {
       noteTitle.value = currentNote.value.title
     }
@@ -170,7 +188,6 @@ watch(currentNote, (newNote) => {
   if (newNote) {
     noteTitle.value = newNote.title
     saveStatus.value = 'Saved'
-    // 在分屏模式下初始化内容
     if (viewMode.value === 'split') {
       splitContent.value = newNote.content
     }
@@ -180,10 +197,8 @@ watch(currentNote, (newNote) => {
   }
 }, { immediate: true })
 
-// 监听视图模式变化
 watch(viewMode, (newMode) => {
   if (newMode === 'split' && currentNote.value) {
-    // 进入分屏模式时初始化内容
     splitContent.value = currentNote.value.content
   }
 })
@@ -240,31 +255,47 @@ watch(viewMode, (newMode) => {
   overflow: hidden;
 }
 
+.content-section {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.pane-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .title-section {
-  padding: 4px 4px 4px 4px;
-  border-bottom: 1px solid #e5e5e5;
+  padding: 6px 6px 6px 6px;
   background-color: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .title-input {
   width: 100%;
   font-size: 24px;
   font-weight: 600;
-  border: 1px solid transparent;
+  border: 1px solid #e5e7eb;
   outline: none;
-  background: transparent;
+  background: #fdfdfd;
   color: #374151;
-  padding: 6px 12px;
+  padding: 8px 16px;
   border-radius: 6px;
   transition: all 0.2s ease;
   font-family: inherit;
   line-height: 1.3;
-  margin-bottom: 4px;
+}
+
+.title-input:hover {
+  border-color: #d1d5db;
 }
 
 .title-input:focus {
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
@@ -272,18 +303,17 @@ watch(viewMode, (newMode) => {
   font-size: 24px;
   font-weight: 600;
   margin: 0;
-  padding: 6px 8px 4px 12px;
+  padding: 8px 16px;
   color: #374151;
   line-height: 1.3;
+  border: 1px solid transparent;
 }
 
-.content-section {
+.edit-pane-container {
   flex: 1;
-  display: flex;
   overflow: hidden;
 }
 
-.edit-pane-container,
 .view-pane-container {
   flex: 1;
   overflow: auto;
@@ -295,10 +325,11 @@ watch(viewMode, (newMode) => {
   overflow: hidden;
 }
 
-.edit-section,
-.view-section {
+.split-half {
   flex: 1;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .split-divider {

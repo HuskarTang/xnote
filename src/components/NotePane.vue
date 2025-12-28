@@ -25,7 +25,7 @@
           @click="clearSearch"
           title="Clear search"
         >
-          ✕
+          <Icons name="close" :size="16" />
         </button>
         <button 
           v-else
@@ -34,7 +34,7 @@
           @click="focusSearch"
           title="Search"
         >
-          🔍
+          <Icons name="search" :size="16" />
         </button>
       </div>
       <button 
@@ -43,7 +43,7 @@
         title="Create new note"
         data-tauri-drag-region="false"
       >
-        +
+        <Icons name="add" :size="16" />
       </button>
     </div>
 
@@ -71,8 +71,8 @@
         <div class="note-header">
           <h3 class="note-title">{{ note.title || 'Untitled' }}</h3>
           <div class="note-icons">
-            <span v-if="note.is_favorite" class="favorite-icon" title="Favorite">⭐</span>
-            <span v-if="note.has_attachments" class="attachment-icon" title="Has attachments">📎</span>
+            <Icons v-if="note.is_favorite" name="favorite" :size="12" class="favorite-icon" title="Favorite" />
+            <Icons v-if="note.has_attachments" name="attachment" :size="12" class="attachment-icon" title="Has attachments" />
           </div>
         </div>
         
@@ -106,6 +106,7 @@ import { storeToRefs } from 'pinia'
 import { useNotesStore } from '@/stores/notes'
 import { useAppStore } from '@/stores/app'
 import { useTagsStore } from '@/stores/tags'
+import Icons from '@/components/Icons.vue'
 import type { Note } from '@/types'
 
 const notesStore = useNotesStore()
@@ -200,7 +201,10 @@ const selectNote = (note: Note) => {
 // 创建新笔记
 const handleCreateNote = async () => {
   try {
-    const newNote = await notesStore.createNote('Untitled', '')
+    const specialTags = ['All Notes', 'Favorites', 'Untagged', 'Trash', 'Tags']
+    const tags = !specialTags.includes(selectedTag.value) ? [selectedTag.value] : []
+    
+    const newNote = await notesStore.createNote('Untitled', '', tags)
     appStore.setViewMode('edit')
   } catch (err) {
     console.error('Failed to create note:', err)
@@ -290,7 +294,8 @@ const focusSearch = () => {
 .note-pane-header {
   display: flex;
   align-items: center;
-  padding: 12px;
+  padding: 0 12px;
+  height: 48px;
   border-bottom: 1px solid #e5e5e5;
   gap: 8px;
   pointer-events: auto;

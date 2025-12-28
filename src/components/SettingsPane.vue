@@ -114,6 +114,7 @@
 import { ref, onMounted } from 'vue'
 import type { GitSyncConfig } from '@/types'
 import { api } from '@/utils/api'
+import { ElMessage } from 'element-plus'
 
 const emit = defineEmits<{
   close: []
@@ -166,17 +167,17 @@ const selectSSHKey = async () => {
 // 测试连接
 const testConnection = async () => {
   if (!gitConfig.value.repository_url) {
-    alert('请先填写Git仓库地址')
+    ElMessage.warning('请先填写Git仓库地址')
     return
   }
   
   isTestingConnection.value = true
   try {
     // 暂时简化测试连接逻辑
-    alert('连接测试功能开发中...')
+    ElMessage.info('连接测试功能开发中...')
   } catch (error) {
     console.error('Connection test failed:', error)
-    alert('连接测试失败，请检查配置')
+    ElMessage.error('连接测试失败，请检查配置')
   } finally {
     isTestingConnection.value = false
   }
@@ -187,12 +188,12 @@ const saveSettings = async () => {
   isSaving.value = true
   try {
     await api.updateGitSyncConfig(gitConfig.value)
-    alert('设置保存成功！')
+    ElMessage.success('设置保存成功')
     emit('saved')
     emit('close')
   } catch (error) {
     console.error('Failed to save settings:', error)
-    alert('保存设置失败，请重试')
+    ElMessage.error('保存设置失败，请重试')
   } finally {
     isSaving.value = false
   }

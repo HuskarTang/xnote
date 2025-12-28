@@ -10,7 +10,7 @@
         <!-- 添加附件按钮 -->
         <div class="add-attachment-section">
           <button class="add-attachment-button" @click="selectFiles">
-            <span class="icon">📎</span>
+            <Icons name="attachment" :size="16" class="icon" />
             选择文件添加附件
           </button>
           <input
@@ -37,7 +37,7 @@
               class="attachment-item"
             >
               <div class="attachment-info">
-                <span class="attachment-icon">📄</span>
+                <Icons name="file" :size="16" class="attachment-icon" />
                 <span class="attachment-name">{{ getFileName(attachment) }}</span>
               </div>
               <div class="attachment-actions">
@@ -46,14 +46,14 @@
                   @click="openAttachment(attachment)"
                   title="打开附件"
                 >
-                  👁
+                  <Icons name="open" :size="16" />
                 </button>
                 <button
                   class="action-button delete-button"
                   @click="deleteAttachment(attachment)"
                   title="删除附件"
                 >
-                  🗑
+                  <Icons name="delete" :size="16" />
                 </button>
               </div>
             </div>
@@ -72,6 +72,8 @@
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/tauri'
 import { open } from '@tauri-apps/api/dialog'
+import { ElMessage } from 'element-plus'
+import Icons from '@/components/Icons.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -147,7 +149,7 @@ async function handleFileSelect(event: Event) {
 // 添加附件
 async function addAttachment(filePath: string) {
   if (!props.noteId) {
-    alert('无法添加附件：未指定笔记ID')
+    ElMessage.error('无法添加附件：未指定笔记ID')
     return
   }
   
@@ -163,14 +165,14 @@ async function addAttachment(filePath: string) {
     await loadAttachments()
   } catch (error) {
     console.error('Failed to add attachment:', error)
-    alert(`添加附件失败: ${error}`)
+    ElMessage.error(`添加附件失败: ${error}`)
   }
 }
 
 // 删除附件
 async function deleteAttachment(attachment: string) {
   if (!props.noteId) {
-    alert('无法删除附件：未指定笔记ID')
+    ElMessage.error('无法删除附件：未指定笔记ID')
     return
   }
   
@@ -189,11 +191,11 @@ async function deleteAttachment(attachment: string) {
       // 重新加载附件列表
       await loadAttachments()
     } else {
-      alert('附件不存在或已被删除')
+      ElMessage.warning('附件不存在或已被删除')
     }
   } catch (error) {
     console.error('Failed to delete attachment:', error)
-    alert(`删除附件失败: ${error}`)
+    ElMessage.error(`删除附件失败: ${error}`)
   }
 }
 
@@ -205,7 +207,7 @@ async function openAttachment(attachment: string) {
     })
   } catch (error) {
     console.error('Failed to open attachment:', error)
-    alert(`打开附件失败: ${error}`)
+    ElMessage.error(`打开附件失败: ${error}`)
   }
 }
 

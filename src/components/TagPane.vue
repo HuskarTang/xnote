@@ -1,5 +1,8 @@
 <template>
   <div class="tag-pane-container">
+    <!-- Window Drag Area (macOS Traffic Lights) -->
+    <div class="window-drag-area" data-tauri-drag-region></div>
+
     <!-- 主要视图 -->
     <div class="tag-sections">
       <!-- All Notes -->
@@ -8,7 +11,9 @@
         :class="{ active: selectedTag === 'All Notes' }"
         @click="selectTag('All Notes')"
       >
-        <div class="tag-icon">📝</div>
+        <div class="tag-icon">
+          <Icons name="note" :size="16" />
+        </div>
         <div class="tag-content">
           <span class="tag-name">All Notes</span>
           <span class="tag-count">{{ allNotesCount }}</span>
@@ -21,7 +26,9 @@
         :class="{ active: selectedTag === 'Favorites' }"
         @click="selectTag('Favorites')"
       >
-        <div class="tag-icon">⭐</div>
+        <div class="tag-icon">
+          <Icons name="favorite" :size="16" />
+        </div>
         <div class="tag-content">
           <span class="tag-name">Favorites</span>
           <span class="tag-count">{{ favoritesCount }}</span>
@@ -34,7 +41,9 @@
         :class="{ active: selectedTag === 'Tags' }"
         @click="selectTag('Tags')"
       >
-        <div class="tag-icon">🏷️</div>
+        <div class="tag-icon">
+          <Icons name="tags" :size="16" />
+        </div>
         <div class="tag-content">
           <span class="tag-name">Tags</span>
           <span class="tag-count">{{ tags.length }}</span>
@@ -50,7 +59,9 @@
           :class="{ active: selectedTag === tag.name }"
           @click="selectTag(tag.name)"
         >
-          <div class="tag-icon">📋</div>
+          <div class="tag-icon">
+            <Icons name="tag" :size="14" />
+          </div>
           <div class="tag-content">
             <span class="tag-name">{{ tag.name }}</span>
             <span class="tag-count">{{ tag.note_count }}</span>
@@ -64,7 +75,9 @@
         :class="{ active: selectedTag === 'Untagged' }"
         @click="selectTag('Untagged')"
       >
-        <div class="tag-icon">🔖</div>
+        <div class="tag-icon">
+          <Icons name="bookmark" :size="16" />
+        </div>
         <div class="tag-content">
           <span class="tag-name">Untagged</span>
           <span class="tag-count">{{ untaggedCount }}</span>
@@ -77,7 +90,9 @@
         :class="{ active: selectedTag === 'Trash' }"
         @click="selectTag('Trash')"
       >
-        <div class="tag-icon">🗑️</div>
+        <div class="tag-icon">
+          <Icons name="delete" :size="16" />
+        </div>
         <div class="tag-content">
           <span class="tag-name">Trash</span>
           <span class="tag-count">{{ trashCount }}</span>
@@ -88,7 +103,7 @@
     <!-- 同步按钮 -->
     <div class="sync-section" v-if="showSyncButton">
       <button class="sync-btn" @click="openSyncDialog" :disabled="!gitSyncEnabled" title="同步">
-        🔄
+        <Icons name="sync" :size="16" />
       </button>
     </div>
     
@@ -103,6 +118,7 @@ import { storeToRefs } from 'pinia'
 import { useTagsStore } from '@/stores/tags'
 import { useNotesStore } from '@/stores/notes'
 import { api } from '@/utils/api'
+import Icons from '@/components/Icons.vue'
 import SyncDialog from './SyncDialog.vue'
 
 const tagsStore = useTagsStore()
@@ -238,6 +254,13 @@ defineExpose({
   flex-direction: column;
   background-color: #2d2d2d;
   color: #ffffff;
+}
+
+.window-drag-area {
+  height: 38px;
+  width: 100%;
+  -webkit-app-region: drag;
+  flex-shrink: 0;
 }
 
 .tag-pane-header {

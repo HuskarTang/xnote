@@ -1,5 +1,4 @@
 use crate::{NotesManager, TagsManager, ConfigManager};
-use uuid;
 use crate::models::*;
 use crate::{log_debug, log_info, log_warn, log_error};
 use std::sync::{Arc, Mutex};
@@ -264,21 +263,12 @@ pub async fn update_data_directory(state: State<'_, Arc<AppState>>, path: String
 pub async fn reinitialize_data_directory(state: State<'_, Arc<AppState>>, path: String) -> Result<bool, String> {
     log_info!("Reinitializing data directory: {}", path);
     use std::path::PathBuf;
-    use crate::database::DatabaseManager;
     
     // Create a new config with updated data directory
     let new_path = PathBuf::from(path);
     let mut config_manager = state.config_manager.lock().unwrap();
     config_manager.update_data_directory(new_path.clone())
         .map_err(|e| e.to_string())?;
-    
-    // Initialize database in the new directory
-    let db_path = new_path.join("xnote.db");
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async {
-        DatabaseManager::new(&db_path).await
-            .map_err(|e| format!("Failed to initialize database: {}", e))
-    })?;
     
     // Change working directory to new notes directory for relative path support
     let notes_directory = config_manager.get_notes_directory();
@@ -521,15 +511,6 @@ pub async fn add_attachment(state: State<'_, Arc<AppState>>, note_id: String, fi
         .ok_or("Invalid file path")?
         .to_string_lossy();
     
-    let file_size = source_path.metadata()
-        .map_err(|e| format!("Failed to get file metadata: {}", e))?
-        .len() as i64;
-    
-    // 获取MIME类型
-    let mime_type = mime_guess::from_path(&source_path)
-        .first()
-        .map(|m| m.to_string());
-    
     // 获取notes目录
     let notes_directory = {
         let config_manager = state.config_manager.lock().unwrap();
@@ -567,37 +548,14 @@ pub async fn add_attachment(state: State<'_, Arc<AppState>>, note_id: String, fi
         counter += 1;
     };
     
+    // 复制文件
+    fs::copy(&source_path, &target_path)
+        .map_err(|e| format!("Failed to copy file: {}", e))?;
+    
     let relative_path = format!("attachments/{}", target_filename);
     
-    // 检查数据库中是否已存在此附件
-    let db_manager = state.notes_manager.get_database_manager();
-    let attachment_record = db_manager.get_attachment_by_path(&relative_path).await
-        .map_err(|e| format!("Failed to check existing attachment: {}", e))?;
-    
-    let attachment_id = if let Some(existing) = attachment_record {
-        // 附件已存在，直接使用
-        existing.id
-    } else {
-        // 复制文件
-        fs::copy(&source_path, &target_path)
-            .map_err(|e| format!("Failed to copy file: {}", e))?;
-        
-        // 创建新的附件记录
-        let attachment_id = uuid::Uuid::new_v4().to_string();
-        db_manager.create_attachment(
-            &attachment_id,
-            &target_filename,
-            &relative_path,
-            file_size,
-            mime_type.as_deref()
-        ).await
-        .map_err(|e| format!("Failed to create attachment record: {}", e))?;
-        
-        attachment_id
-    };
-    
     // 将附件关联到笔记
-    db_manager.add_attachment_to_note(&note_id, &attachment_id).await
+    state.notes_manager.add_attachment_to_note(&note_id, &relative_path).await
         .map_err(|e| format!("Failed to link attachment to note: {}", e))?;
     
     log_debug!("Successfully added attachment: {}", relative_path);
@@ -609,66 +567,24 @@ pub async fn add_attachment(state: State<'_, Arc<AppState>>, note_id: String, fi
 pub async fn list_attachments(state: State<'_, Arc<AppState>>, note_id: String) -> Result<Vec<String>, String> {
     log_info!("Listing attachments for note {}", note_id);
     
-    let db_manager = state.notes_manager.get_database_manager();
-    let attachments = db_manager.get_note_attachments(&note_id).await
-        .map_err(|e| format!("Failed to get note attachments: {}", e))?;
-    
-    let attachment_paths: Vec<String> = attachments.into_iter()
-        .map(|a| a.file_path)
-        .collect();
-    
-    log_debug!("Found {} attachments for note {}", attachment_paths.len(), note_id);
-    
-    Ok(attachment_paths)
+    match state.notes_manager.get_note(&note_id).await {
+        Ok(Some(note)) => {
+            log_debug!("Found {} attachments for note {}", note.attachments.len(), note_id);
+            Ok(note.attachments)
+        },
+        Ok(None) => Err("Note not found".to_string()),
+        Err(e) => Err(format!("Failed to get note: {}", e)),
+    }
 }
 
 #[tauri::command]
 pub async fn delete_attachment(state: State<'_, Arc<AppState>>, note_id: String, relative_path: String) -> Result<bool, String> {
     log_info!("Deleting attachment {} from note {}", relative_path, note_id);
     
-    use std::fs;
-    
-    let db_manager = state.notes_manager.get_database_manager();
-    
-    // 获取附件记录
-    let attachment = db_manager.get_attachment_by_path(&relative_path).await
-        .map_err(|e| format!("Failed to get attachment: {}", e))?;
-    
-    let attachment = match attachment {
-        Some(a) => a,
-        None => return Err("Attachment not found in database".to_string()),
-    };
-    
-    // 从笔记中移除附件引用
-    db_manager.remove_attachment_from_note(&note_id, &attachment.id).await
+    state.notes_manager.remove_attachment_from_note(&note_id, &relative_path).await
         .map_err(|e| format!("Failed to remove attachment from note: {}", e))?;
-    
-    // 检查是否还有其他引用
-    let updated_attachment = db_manager.get_attachment_by_path(&relative_path).await
-        .map_err(|e| format!("Failed to check attachment references: {}", e))?;
-    
-    if let Some(att) = updated_attachment {
-        if att.reference_count <= 0 {
-            // 没有引用了，删除文件和数据库记录
-            let notes_directory = {
-                let config_manager = state.config_manager.lock().unwrap();
-                config_manager.get_notes_directory()
-            };
-            let file_path = notes_directory.join(&relative_path);
-            
-            if file_path.exists() {
-                fs::remove_file(&file_path)
-                    .map_err(|e| format!("Failed to delete attachment file: {}", e))?;
-            }
-            
-            db_manager.delete_attachment(&attachment.id).await
-                .map_err(|e| format!("Failed to delete attachment record: {}", e))?;
-            
-            log_debug!("Successfully deleted attachment file and record: {}", relative_path);
-        } else {
-            log_debug!("Attachment {} still has {} references, keeping file", relative_path, att.reference_count);
-        }
-    }
+        
+    // Note: We don't delete the file immediately, cleanup_unreferenced_attachments will handle it.
     
     Ok(true)
 }
@@ -850,42 +766,8 @@ fn extract_attachment_references(content: &str) -> Vec<String> {
 pub async fn cleanup_unreferenced_attachments(state: State<'_, Arc<AppState>>) -> Result<usize, String> {
     log_info!("Cleaning up unreferenced attachments");
     
-    use std::fs;
-    
-    let db_manager = state.notes_manager.get_database_manager();
-    let unreferenced = db_manager.get_unreferenced_attachments().await
-        .map_err(|e| format!("Failed to get unreferenced attachments: {}", e))?;
-    
-    let notes_directory = {
-        let config_manager = state.config_manager.lock().unwrap();
-        config_manager.get_notes_directory()
-    };
-    
-    let mut cleaned_count = 0;
-    
-    for attachment in unreferenced {
-        let file_path = notes_directory.join(&attachment.file_path);
-        
-        // Delete file if it exists
-        if file_path.exists() {
-            if let Err(e) = fs::remove_file(&file_path) {
-                log_warn!("Failed to delete unreferenced attachment file {}: {}", attachment.file_path, e);
-                continue;
-            }
-        }
-        
-        // Delete database record
-        if let Err(e) = db_manager.delete_attachment(&attachment.id).await {
-            log_warn!("Failed to delete unreferenced attachment record {}: {}", attachment.id, e);
-            continue;
-        }
-        
-        cleaned_count += 1;
-        log_debug!("Cleaned up unreferenced attachment: {}", attachment.file_path);
-    }
-    
-    log_info!("Cleaned up {} unreferenced attachments", cleaned_count);
-    Ok(cleaned_count)
+    state.notes_manager.cleanup_unused_attachments().await
+        .map_err(|e| format!("Failed to cleanup attachments: {}", e))
 }
 
 // Git Sync Commands

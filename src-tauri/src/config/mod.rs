@@ -103,14 +103,7 @@ impl ConfigManager {
         fs::create_dir_all(&config.data_directory)
             .context("Failed to create data directory")?;
         
-        // Initialize database if it doesn't exist
-        let db_path = config.data_directory.join("xnote.db");
-        if !db_path.exists() {
-            Self::initialize_database(&config)?;
-        }
-        
-        // Scan for existing Markdown files and add them to database
-        Self::scan_and_import_existing_files(&config)?;
+        // No database initialization or scanning needed
         
         Ok(Self {
             config_path,
@@ -143,113 +136,7 @@ impl ConfigManager {
         Ok(())
     }
     
-    fn show_directory_selection_dialog() -> Result<PathBuf> {
-        use tauri::api::dialog::FileDialogBuilder;
-        use std::sync::mpsc;
-        
-        let (tx, rx) = mpsc::channel();
-        
-        FileDialogBuilder::new()
-            .set_title("Select Data Directory")
-            .set_directory(dirs::document_dir().unwrap_or_else(|| PathBuf::from(".")))
-            .pick_folder(move |path_buf| {
-                let _ = tx.send(path_buf);
-            });
-        
-        // Wait for user selection
-        let selected_path = rx.recv().context("Failed to get directory selection")?;
-        
-        selected_path.ok_or_else(|| anyhow::anyhow!("No directory selected"))
-    }
-    
-    fn initialize_database(config: &AppConfig) -> Result<()> {
-        use crate::database::DatabaseManager;
-        
-        // Use a separate thread to avoid nested runtime issues
-        let db_path = config.data_directory.join("xnote.db");
-        let db_path_clone = db_path.clone();
-        
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-            rt.block_on(async {
-                let database_manager = DatabaseManager::new(&db_path_clone).await
-                    .expect("Failed to initialize database");
-                database_manager.close().await;
-            });
-        }).join().map_err(|_| anyhow::anyhow!("Failed to initialize database"))?;
-        
-        Ok(())
-    }
-    
-    fn scan_and_import_existing_files(config: &AppConfig) -> Result<()> {
-        use crate::database::DatabaseManager;
-        use crate::storage::FileStorageManager;
-        use uuid::Uuid;
-        
-        // Use a separate thread to avoid nested runtime issues
-        let config_clone = config.clone();
-        let db_path = config.data_directory.join("xnote.db");
-        
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-            rt.block_on(async {
-                // Initialize database
-                let database_manager = DatabaseManager::new(&db_path).await
-                    .expect("Failed to initialize database");
-                
-                // Initialize file storage
-                let storage_manager = FileStorageManager::new(config_clone.data_directory.clone())
-                    .expect("Failed to initialize storage");
-                
-                // Scan for existing Markdown files
-                let file_infos = storage_manager.scan_existing_files()
-                    .expect("Failed to scan existing files");
-                
-                // Add existing files to database
-                for file_info in file_infos {
-                    let file_path = config_clone.data_directory.join(&file_info.name);
-                    if file_path.exists() {
-                        // Check if file is already in database
-                        let existing_note = sqlx::query("SELECT id FROM notes WHERE file_path = ?1")
-                            .bind(&file_info.name)
-                            .fetch_optional(database_manager.get_pool())
-                            .await
-                            .expect("Failed to check existing notes");
-                        
-                        // If not in database, add it
-                        if existing_note.is_none() {
-                            // Extract title from filename or content
-                            let title = std::path::Path::new(&file_info.name)
-                                .file_stem()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_string();
-                            
-                            // Generate UUID for the note
-                            let id = Uuid::new_v4().to_string();
-                            
-                            // Add to database
-                            database_manager.create_note(&id, &title, &file_info.name).await
-                                .expect("Failed to create note in database");
-                        }
-                    }
-                }
-                
-                // Close database connection
-                database_manager.close().await;
-            });
-        }).join().map_err(|_| anyhow::anyhow!("Failed to scan and import existing files"))?;
-        
-        Ok(())
-    }
-    
-    pub fn update_and_save_config(&mut self, new_config: AppConfig) -> Result<()> {
-        self.config = new_config;
-        Self::save_config(&self.config_path, &self.config)?;
-        // Mark setup as complete
-        self.mark_setup_complete()?;
-        Ok(())
-    }
+    // Removed unused private methods: show_directory_selection_dialog, initialize_database, scan_and_import_existing_files
     
     pub fn get_config(&self) -> &AppConfig {
         &self.config
@@ -267,21 +154,11 @@ impl ConfigManager {
         Ok(())
     }
     
-    pub fn get_data_directory(&self) -> &PathBuf {
-        &self.config.data_directory
-    }
-    
     pub fn get_notes_directory(&self) -> PathBuf {
         self.config.data_directory.clone()
     }
     
-    pub fn get_attachments_directory(&self) -> PathBuf {
-        self.config.data_directory.join("attachments")
-    }
-    
-    pub fn get_database_path(&self) -> PathBuf {
-        self.config.data_directory.join("xnote.db")
-    }
+    // Removed get_database_path
     
     fn load_config(path: &PathBuf) -> Result<AppConfig> {
         let content = fs::read_to_string(path)
@@ -374,10 +251,7 @@ mod tests {
             config.data_directory.join("attachments"),
             temp_dir.path().join("attachments")
         );
-        assert_eq!(
-            config.data_directory.join("xnote.db"),
-            temp_dir.path().join("xnote.db")
-        );
+        // Removed xnote.db check
     }
     
     #[test]

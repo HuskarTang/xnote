@@ -42,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, markRaw } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAppStore } from '@/stores/app'
 import { useNotesStore } from '@/stores/notes'
@@ -54,6 +54,8 @@ import SetupPage from '@/components/SetupPage.vue'
 import SettingsPane from '@/components/SettingsPane.vue'
 import { api } from '@/utils/api'
 import { listen } from '@tauri-apps/api/event'
+import { ElMessageBox } from 'element-plus'
+import { InfoFilled } from '@element-plus/icons-vue'
 
 const appStore = useAppStore()
 const notesStore = useNotesStore()
@@ -159,8 +161,19 @@ const setupMenuListeners = async () => {
     
     // 监听关于菜单事件
     await listen('show-about', () => {
-      // 可以在这里显示关于对话框
-      alert('XNote v0.1.0\n一个简洁的笔记应用')
+      ElMessageBox.alert(
+        'XNote 是一个超轻量、完全基于文件的 Markdown 笔记应用， 支持通过git仓库进行远程协同<br/>'
+          + 'Version: 0.1.0<br/>'
+          + 'Contact: tanly6@chinatelecom.cn',
+        '关于 XNote',
+        {
+          confirmButtonText: '确定',
+          icon: markRaw(InfoFilled),
+          center: true,
+          draggable: true,
+          dangerouslyUseHTMLString: true // 允许使用HTML字符串
+        }
+      )
     })
   } catch (error) {
     console.error('Failed to setup menu listeners:', error)

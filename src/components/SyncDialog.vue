@@ -102,7 +102,9 @@
                     class="file-item"
                     :class="file.status"
                   >
-                    <div class="file-icon">📄</div>
+                    <div class="file-icon">
+                      <Icons name="file" :size="14" />
+                    </div>
                     <div class="file-info">
                       <div class="file-name">{{ getFileName(file.file_path) }}</div>
                       <div class="file-status">{{ getStatusText(file.status) }}</div>
@@ -160,6 +162,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import type { GitSyncConfig, SyncStatus, SyncDiff, SyncResult } from '@/types'
 import { api } from '@/utils/api'
+import Icons from '@/components/Icons.vue'
 
 const emit = defineEmits<{
   close: []

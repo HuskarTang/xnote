@@ -2,7 +2,6 @@
 
 mod commands;
 mod config;
-mod database;
 mod logger;
 mod models;
 mod notes;
@@ -12,13 +11,12 @@ mod tags;
 
 use commands::{AppState};
 use config::ConfigManager;
-use database::DatabaseManager;
 use logger::init_logger;
 use notes::NotesManager;
 use storage::FileStorageManager;
 use tags::TagsManager;
 use std::sync::{Arc, Mutex};
-use tauri::{Menu, MenuItem, Submenu, CustomMenuItem, WindowMenuEvent};
+use tauri::{Manager, Menu, MenuItem, Submenu, CustomMenuItem, WindowMenuEvent};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -46,19 +44,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log_info!("Changed working directory to: {}", notes_directory.display());
     }
     
-    // Initialize database
-    let db_path = config_manager.get_database_path();
-    let database_manager = DatabaseManager::new(&db_path).await
-        .map_err(|e| format!("Failed to initialize database: {}", e))?;
-    
     // Initialize file storage
     let notes_directory = config_manager.get_notes_directory();
     let storage_manager = FileStorageManager::new(notes_directory)
         .map_err(|e| format!("Failed to initialize storage: {}", e))?;
     
     // Initialize managers
-    let notes_manager = NotesManager::new(database_manager.clone(), storage_manager);
-    let tags_manager = TagsManager::new(database_manager);
+    // Note: storage_manager is cloned because it's used by both managers
+    let notes_manager = NotesManager::new(storage_manager.clone());
+    let tags_manager = TagsManager::new(storage_manager);
     
     // Create shared application state
     let app_state = Arc::new(AppState {
@@ -132,7 +126,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::get_commit_history
         ])
         .setup(|_app| {
-            // 注释掉自动打开开发者工具的代码
             // #[cfg(debug_assertions)]
             // {
             //     if let Some(window) = app.get_window("main") {
