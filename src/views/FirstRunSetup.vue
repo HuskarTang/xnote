@@ -2,7 +2,7 @@
   <div class="setup-container">
     <div class="setup-card">
       <div class="setup-header">
-        <h1>Welcome to MDNote</h1>
+        <h1>Welcome to XNote</h1>
         <p>Let's set up your note storage location</p>
       </div>
 

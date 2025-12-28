@@ -3,7 +3,7 @@
     <div v-if="!currentNote" class="welcome-screen">
       <div class="welcome-content">
         <div class="welcome-icon">📝</div>
-        <h2>Welcome to MDNote</h2>
+        <h2>Welcome to XNote</h2>
         <p>Select a note from the list or create a new one to get started.</p>
       </div>
     </div>

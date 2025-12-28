@@ -1,115 +1,80 @@
-# MDNote
+# XNote
 
-A lightweight, cross-platform Markdown note-taking application built with Rust, Tauri, and Vue 3.
+XNote is a cross-platform lightweight Markdown note-taking application built with Vue 3, TypeScript, and Tauri. It provides a rich text editing experience with support for Markdown syntax, image pasting, and tag-based organization.
 
-![MDNote Screenshot](docs/screenshot.png)
+![XNote Screenshot](attachments/Clipboard_2025-09-05-16-23-00.png)
 
 ## Features
 
-### 📝 Markdown Support
-- **Full Markdown syntax** support with live preview
-- **Rich text editing** with syntax highlighting
-- **Split view mode** for simultaneous editing and preview
-- **Image paste support** with automatic attachment management
-- **Code syntax highlighting** for multiple languages
+- **Markdown Editing**: Full support for Markdown syntax with live preview
+- **Tag-based Organization**: Organize notes with custom tags
+- **File Attachments**: Attach files and images to notes
+- **Search Functionality**: Powerful search across all notes
+- **Favorites**: Mark important notes as favorites
+- **Trash/Recycle Bin**: Safely delete notes with recovery option
+- **Cross-platform**: Works on Windows and macOS
+- **Real-time Saving**: Automatic saving with manual override
+- **Split View**: Edit and preview simultaneously
 
-### 🏷️ Organization
-- **Tag system** for categorizing notes
-- **Favorites** for quick access to important notes
-- **Search functionality** across all notes and tags
-- **Trash/Recycle bin** for deleted notes
-- **Untagged notes** view for better organization
+## Tech Stack
 
-### 💾 Storage
-- **File-based storage** - your notes are stored as `.md` files
-- **SQLite database** for metadata and tag relationships
-- **Attachments folder** for images and other files
-- **Configurable data directory** - choose where to store your notes
-
-### 🎨 Interface
-- **Three-pane layout**: Tags | Notes List | Editor/Viewer
-- **Resizable panels** with customizable widths (default ratio 2:3:12)
-- **Multiple view modes**: View, Edit, and Split view
-- **Auto-save** functionality
-- **Cross-platform** support (Windows, macOS, Linux)
-
-### 🔧 Advanced Features
-- **Export notes** to HTML, PDF, or Markdown
-- **Attachment management** for images and files
-- **Keyboard shortcuts** for efficient workflow
-- **Auto-save** with configurable intervals
-- **First-run setup** for data directory configuration
+- **Frontend**: Vue 3 + TypeScript + Vite
+- **Backend**: Rust (Tauri)
+- **Data Storage**: 
+  - Markdown files (.md)
+  - SQLite database (mdnote.db) for metadata and tags
+  - Attachments directory for media files
+- **Configuration**: JSON format (config.json)
 
 ## Installation
 
-### Pre-built Binaries
+### Prerequisites
 
-Download the latest release for your platform from the [Releases](https://github.com/mdnote/mdnote/releases) page:
+- Node.js (v16 or higher)
+- Rust (via rustup)
+- Tauri CLI
 
-- **Windows**: `MDNote_x.x.x_x64_en-US.msi`
-- **macOS**: `MDNote_x.x.x_x64.dmg`
-- **Linux**: `MDNote_x.x.x_amd64.AppImage`
+### Setup
 
-### Build from Source
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd xnote
+```
 
-#### Prerequisites
+2. Install frontend dependencies:
+```bash
+npm install
+```
 
-- [Rust](https://rustup.rs/) (latest stable)
-- [Node.js](https://nodejs.org/) (v16 or later)
-- [Tauri Prerequisites](https://tauri.app/v1/guides/getting-started/prerequisites)
+3. Install Tauri CLI:
+```bash
+npm install -g @tauri-apps/cli
+```
 
-#### Build Steps
+### Development
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/mdnote/mdnote.git
-   cd mdnote
-   ```
+Start the development server:
+```bash
+npm run tauri dev
+```
 
-2. **Install dependencies**
-   ```bash
-   # Install Node.js dependencies
-   npm install
-   
-   # Install Rust dependencies (handled by Cargo)
-   ```
+### Building
 
-3. **Development mode**
-   ```bash
-   npm run tauri dev
-   ```
-
-4. **Build for production**
-   ```bash
-   npm run tauri build
-   ```
-
-The built application will be available in `src-tauri/target/release/bundle/`.
+Build the application for production:
+```bash
+npm run tauri build
+```
 
 ## Usage
 
-### First Run
+### Interface Overview
 
-When you first launch MDNote, you'll be prompted to select a data directory where your notes will be stored. This directory will contain:
+XNote uses a three-pane layout:
 
-- `*.md` files - your notes in Markdown format
-- `attachments/` - folder for images and file attachments
-- `mdnote.db` - SQLite database for tags and metadata
-- `config.json` - application configuration
-
-### Creating Notes
-
-1. Click the **"+ New Note"** button in the notes panel
-2. Start typing in the editor
-3. The note title is automatically generated from the first heading
-4. Notes are auto-saved as you type
-
-### Managing Tags
-
-1. Click the **🏷️ tag button** in the editor toolbar
-2. Add new tags or select from existing ones
-3. Remove tags by clicking the × next to them
-4. Use the sidebar to filter notes by tags
+1. **TagPane** (Left): Navigation and tag management
+2. **NotePane** (Middle): List of notes
+3. **ContentPane** (Right): Note content editing/display
 
 ### View Modes
 
@@ -117,106 +82,111 @@ When you first launch MDNote, you'll be prompted to select a data directory wher
 - **Edit Mode** (✏️): Raw Markdown editing
 - **Split Mode** (📱): Side-by-side editing and preview
 
-### Keyboard Shortcuts
+### Core Features
 
-- `Ctrl/Cmd + S` - Save note
-- `Ctrl/Cmd + N` - New note
-- `Ctrl/Cmd + F` - Search notes
-- `Delete` - Move note to trash
+#### Creating Notes
+- Click the "+" button in the NotePane
+- Notes are automatically saved as Markdown files
 
-## Configuration
+#### Tag Management
+- Click the tag icon (🏷️) in the ActionBar
+- Add, remove, or manage tags for notes
 
-The application stores its configuration in:
-- **Windows**: `%APPDATA%/mdnote/config.json`
-- **macOS**: `~/Library/Application Support/mdnote/config.json`
+#### Search
+- Use the search box in NotePane to find notes
+- Search by title or content
+
+#### Attachments
+- Paste images directly into notes
+- Drag and drop files to attach them
+
+## Data Storage
+
+### File Structure
+```
+mdnote/
+├── config.json          # Application configuration
+├── mdnote.db           # SQLite database (tags, metadata)
+├── attachments/        # Attached files and images
+└── *.md                # Markdown note files
+```
+
+### Configuration
+The application creates a `config.json` file in your system's configuration directory:
+- **Windows**: `%APPDATA%\MDNote\config.json`
+- **macOS**: `~/Library/Application Support/MDNote/config.json`
 - **Linux**: `~/.config/mdnote/config.json`
 
-### Configuration Options
-
+Default configuration:
 ```json
 {
-  "data_directory": "/path/to/your/notes",
+  "data_directory": "~/Documents/MDNote",
   "window_width": 1200,
   "window_height": 800,
-  "sidebar_width": 250,
-  "note_list_width": 350,
+  "sidebar_width": 240,
+  "note_list_width": 320,
   "auto_save_interval": 5000,
   "theme": "light"
 }
 ```
 
-## File Structure
-
-```
-your-data-directory/
-├── attachments/           # Images and file attachments
-│   ├── image-1234567890.png
-│   └── document.pdf
-├── mdnote.db             # SQLite database for metadata
-├── note1.md              # Your markdown notes
-├── note2.md
-└── ...
-```
-
 ## Development
 
 ### Project Structure
-
 ```
-mdnote/
-├── src/                  # Rust backend (Tauri)
-│   ├── commands/         # Tauri command handlers
-│   ├── database.rs       # SQLite database operations
-│   ├── models.rs         # Data models
-│   ├── config.rs         # Configuration management
-│   └── main.rs           # Application entry point
-├── src/                  # Vue 3 frontend
-│   ├── components/       # Vue components
-│   ├── stores/           # Pinia stores
-│   ├── views/            # Page components
-│   └── main.ts           # Frontend entry point
-├── Cargo.toml            # Rust dependencies
-├── package.json          # Node.js dependencies
-└── tauri.conf.json       # Tauri configuration
+xnote/
+├── src/                    # Frontend Vue source code
+│   ├── components/         # Vue components
+│   ├── stores/             # Pinia stores
+│   ├── types/              # TypeScript types
+│   ├── utils/              # Utility functions
+│   ├── App.vue             # Main application component
+│   └── main.ts             # Application entry point
+├── src-tauri/              # Tauri backend (Rust)
+│   ├── src/                # Rust source code
+│   ├── Cargo.toml          # Rust dependencies
+│   └── tauri.conf.json     # Tauri configuration
+├── index.html              # HTML entry point
+├── package.json            # Frontend dependencies
+└── XNote需求.md            # Requirements document (Chinese)
 ```
 
-### Tech Stack
+### Backend Modules
 
-- **Backend**: Rust with Tauri framework
-- **Frontend**: Vue 3 with TypeScript
-- **State Management**: Pinia
-- **Database**: SQLite with sqlx
-- **Editor**: CodeMirror 6
-- **Markdown**: marked.js with DOMPurify
-- **Styling**: SCSS
+1. **Config**: Application configuration management
+2. **Database**: SQLite database operations
+3. **Notes**: Note CRUD operations and file management
+4. **Storage**: File system operations
+5. **Tags**: Tag management and associations
 
-### Contributing
+### Running Tests
+
+Frontend tests:
+```bash
+npm test
+```
+
+Backend tests:
+```bash
+cd src-tauri
+cargo test
+```
+
+## Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgments
 
-- Inspired by [Notable](https://notable.app/) - an excellent note-taking application
-- Built with [Tauri](https://tauri.app/) - a framework for building desktop applications
-- Uses [CodeMirror](https://codemirror.net/) for the markdown editor
-- Markdown rendering by [marked.js](https://marked.js.org/)
-
-## Support
-
-If you encounter any issues or have questions:
-
-1. Check the [Issues](https://github.com/mdnote/mdnote/issues) page
-2. Create a new issue with detailed information
-3. Join our [Discussions](https://github.com/mdnote/mdnote/discussions) for community support
-
----
-
-**MDNote** - Simple, powerful, and yours. 📝
+- [Tauri](https://tauri.studio/) for the desktop application framework
+- [Vue.js](https://vuejs.org/) for the frontend framework
+- [Marked.js](https://marked.js.org/) for Markdown parsing
+- [Highlight.js](https://highlightjs.org/) for code syntax highlighting

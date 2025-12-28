@@ -1,13 +1,12 @@
-import { createApp } from "vue";
-import { createPinia } from "pinia";
-import App from "./App.vue";
-import router from "./router";
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import App from './App.vue'
 
-import "./styles/main.scss";
+// 引入 highlight.js 样式
+import 'highlight.js/styles/github.css'
 
-const app = createApp(App);
+const app = createApp(App)
+const pinia = createPinia()
 
-app.use(createPinia());
-app.use(router);
-
-app.mount("#app");
+app.use(pinia)
+app.mount('#app')

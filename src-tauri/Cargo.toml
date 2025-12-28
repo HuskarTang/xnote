@@ -1,0 +1,30 @@
+[package]
+name = "xnote"
+version = "0.1.0"
+description = "A lightweight markdown note-taking application"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1.0", features = [] }
+
+[dependencies]
+tauri = { version = "1.0", features = ["fs-all", "shell-open", "path-all", "dialog-all"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.4", features = ["v4"] }
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"
+anyhow = "1.0"
+
+[dev-dependencies]
+tempfile = "3.8"
+tokio-test = "0.4"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

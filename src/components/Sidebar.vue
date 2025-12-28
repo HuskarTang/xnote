@@ -1,7 +1,7 @@
 <template>
   <div class="sidebar">
     <div class="sidebar-header">
-      <h2 class="app-title">MDNote</h2>
+      <h2 class="app-title">XNote</h2>
     </div>
 
     <div class="sidebar-content">

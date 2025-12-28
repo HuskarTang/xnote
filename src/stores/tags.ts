@@ -1,166 +1,36 @@
-import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import { invoke } from '@tauri-apps/api/tauri';
-import type { Tag, NoteWithTags } from '@/types';
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import type { Tag } from '@/types'
+import { api } from '@/utils/api'
 
 export const useTagsStore = defineStore('tags', () => {
-  const tags = ref<Tag[]>([]);
-  const isLoading = ref(false);
-  const error = ref<string | null>(null);
-
-  const sortedTags = computed(() => 
-    [...tags.value].sort((a, b) => a.name.localeCompare(b.name))
-  );
+  const tags = ref<Tag[]>([])
+  const selectedTag = ref<string>('All Notes')
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
   async function loadTags() {
-    isLoading.value = true;
-    error.value = null;
-
     try {
-      tags.value = await invoke<Tag[]>('get_all_tags');
+      loading.value = true
+      error.value = null
+      tags.value = await api.getAllTags()
     } catch (err) {
-      error.value = err as string;
-      console.error('Failed to load tags:', err);
+      error.value = err instanceof Error ? err.message : 'Failed to load tags'
     } finally {
-      isLoading.value = false;
+      loading.value = false
     }
   }
 
-  async function addTagToNote(noteId: string, tagName: string) {
-    error.value = null;
-
-    try {
-      const tag = await invoke<Tag>('add_tag_to_note', { 
-        noteId, 
-        tagName 
-      });
-      
-      // Add tag to list if it's new
-      if (!tags.value.find(t => t.id === tag.id)) {
-        tags.value.push(tag);
-      }
-      
-      return tag;
-    } catch (err) {
-      error.value = err as string;
-      throw err;
-    }
-  }
-
-  async function removeTagFromNote(noteId: string, tagId: string) {
-    error.value = null;
-
-    try {
-      await invoke('remove_tag_from_note', { 
-        noteId, 
-        tagId 
-      });
-    } catch (err) {
-      error.value = err as string;
-      throw err;
-    }
-  }
-
-  async function getNotesByTag(tagName: string) {
-    isLoading.value = true;
-    error.value = null;
-
-    try {
-      const notes = await invoke<NoteWithTags[]>('get_notes_by_tag', { 
-        tagName 
-      });
-      return notes;
-    } catch (err) {
-      error.value = err as string;
-      throw err;
-    } finally {
-      isLoading.value = false;
-    }
-  }
-
-  async function getUntaggedNotes() {
-    isLoading.value = true;
-    error.value = null;
-
-    try {
-      const notes = await invoke<NoteWithTags[]>('get_untagged_notes');
-      return notes;
-    } catch (err) {
-      error.value = err as string;
-      throw err;
-    } finally {
-      isLoading.value = false;
-    }
-  }
-
-  async function getFavoriteNotes() {
-    isLoading.value = true;
-    error.value = null;
-
-    try {
-      const notes = await invoke<NoteWithTags[]>('get_favorite_notes');
-      return notes;
-    } catch (err) {
-      error.value = err as string;
-      throw err;
-    } finally {
-      isLoading.value = false;
-    }
-  }
-
-  async function getTrashedNotes() {
-    isLoading.value = true;
-    error.value = null;
-
-    try {
-      const notes = await invoke<NoteWithTags[]>('get_trashed_notes');
-      return notes;
-    } catch (err) {
-      error.value = err as string;
-      throw err;
-    } finally {
-      isLoading.value = false;
-    }
-  }
-
-  async function createTag(tagName: string, color?: string) {
-    error.value = null;
-
-    try {
-      const tag = await invoke<Tag>('create_tag', { 
-        tagName, 
-        color 
-      });
-      
-      // Add to list if not already present
-      if (!tags.value.find(t => t.id === tag.id)) {
-        tags.value.push(tag);
-      }
-      
-      return tag;
-    } catch (err) {
-      error.value = err as string;
-      throw err;
-    }
-  }
-
-  function clearError() {
-    error.value = null;
+  function setSelectedTag(tagName: string) {
+    selectedTag.value = tagName
   }
 
   return {
     tags,
-    isLoading,
+    selectedTag,
+    loading,
     error,
-    sortedTags,
     loadTags,
-    addTagToNote,
-    removeTagFromNote,
-    getNotesByTag,
-    getUntaggedNotes,
-    getFavoriteNotes,
-    getTrashedNotes,
-    createTag,
-    clearError,
-  };
-});
+    setSelectedTag,
+  }
+})

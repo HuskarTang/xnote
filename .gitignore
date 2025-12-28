@@ -1,3 +1,5 @@
 src-tauri/target
 src/.DS_Store
 dist
+node_modules/
+attachments/

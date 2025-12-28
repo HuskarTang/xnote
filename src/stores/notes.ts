@@ -1,250 +1,158 @@
-import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import { invoke } from '@tauri-apps/api/tauri';
-import type { NoteWithTags, NoteContent, CreateNoteRequest, SaveNoteRequest, SearchRequest } from '@/types';
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import type { Note } from '@/types'
+import { api } from '@/utils/api'
 
 export const useNotesStore = defineStore('notes', () => {
-  const notes = ref<NoteWithTags[]>([]);
-  const currentNote = ref<NoteContent | null>(null);
-  const isLoading = ref(false);
-  const error = ref<string | null>(null);
-  const searchQuery = ref('');
-  const selectedTagFilter = ref<string | null>(null);
+  const notes = ref<Note[]>([])
+  const currentNote = ref<Note | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
-  const filteredNotes = computed(() => {
-    let filtered = notes.value;
-
-    if (searchQuery.value) {
-      const query = searchQuery.value.toLowerCase();
-      filtered = filtered.filter(noteWithTags => 
-        noteWithTags.note.title.toLowerCase().includes(query) ||
-        noteWithTags.tags.some(tag => tag.name.toLowerCase().includes(query))
-      );
-    }
-
-    if (selectedTagFilter.value) {
-      filtered = filtered.filter(noteWithTags =>
-        noteWithTags.tags.some(tag => tag.name === selectedTagFilter.value)
-      );
-    }
-
-    return filtered;
-  });
-
-  const favoriteNotes = computed(() => 
-    notes.value.filter(noteWithTags => noteWithTags.note.is_favorite && !noteWithTags.note.is_trashed)
-  );
-
-  const trashedNotes = computed(() => 
-    notes.value.filter(noteWithTags => noteWithTags.note.is_trashed)
-  );
-
-  const untaggedNotes = computed(() => 
-    notes.value.filter(noteWithTags => 
-      noteWithTags.tags.length === 0 && !noteWithTags.note.is_trashed
+  const sortedNotes = computed(() => {
+    return [...notes.value].sort((a, b) => 
+      new Date(b.modified_at).getTime() - new Date(a.modified_at).getTime()
     )
-  );
+  })
 
-  async function loadNotes(includeTrash = false) {
-    isLoading.value = true;
-    error.value = null;
-
+  async function loadNotes() {
     try {
-      notes.value = await invoke<NoteWithTags[]>('get_all_notes', { 
-        includeTrash 
-      });
+      loading.value = true
+      error.value = null
+      notes.value = await api.getAllNotes()
     } catch (err) {
-      error.value = err as string;
-      console.error('Failed to load notes:', err);
+      error.value = err instanceof Error ? err.message : 'Failed to load notes'
     } finally {
-      isLoading.value = false;
+      loading.value = false
     }
   }
 
-  async function loadNoteContent(noteId: string) {
-    isLoading.value = true;
-    error.value = null;
-
+  async function loadFavorites() {
     try {
-      currentNote.value = await invoke<NoteContent>('get_note_content', { 
-        noteId 
-      });
+      loading.value = true
+      error.value = null
+      notes.value = await api.getFavorites()
     } catch (err) {
-      error.value = err as string;
-      console.error('Failed to load note content:', err);
+      error.value = err instanceof Error ? err.message : 'Failed to load favorites'
     } finally {
-      isLoading.value = false;
+      loading.value = false
     }
   }
 
-  async function createNote(request: CreateNoteRequest) {
-    isLoading.value = true;
-    error.value = null;
-
+  async function loadUntagged() {
     try {
-      const newNote = await invoke<NoteContent>('create_note', { request });
-      currentNote.value = newNote;
-      
-      // Reload notes list
-      await loadNotes();
-      
-      return newNote;
+      loading.value = true
+      error.value = null
+      notes.value = await api.getUntagged()
     } catch (err) {
-      error.value = err as string;
-      throw err;
+      error.value = err instanceof Error ? err.message : 'Failed to load untagged notes'
     } finally {
-      isLoading.value = false;
+      loading.value = false
     }
   }
 
-  async function saveNote(request: SaveNoteRequest) {
-    error.value = null;
-
+  async function loadTrash() {
     try {
-      await invoke('save_note', { request });
-      
-      // Update current note if it's the same one
-      if (currentNote.value && currentNote.value.id === request.id) {
-        currentNote.value.title = request.title;
-        currentNote.value.content = request.content;
-        currentNote.value.modified_at = new Date().toISOString();
-      }
-      
-      // Reload notes list to update the title in the list
-      await loadNotes();
+      loading.value = true
+      error.value = null
+      notes.value = await api.getTrash()
     } catch (err) {
-      error.value = err as string;
-      throw err;
-    }
-  }
-
-  async function deleteNote(noteId: string) {
-    error.value = null;
-
-    try {
-      await invoke('delete_note', { noteId });
-      
-      // Clear current note if it was deleted
-      if (currentNote.value && currentNote.value.id === noteId) {
-        currentNote.value = null;
-      }
-      
-      // Reload notes list
-      await loadNotes();
-    } catch (err) {
-      error.value = err as string;
-      throw err;
-    }
-  }
-
-  async function moveToTrash(noteId: string) {
-    error.value = null;
-
-    try {
-      await invoke('move_to_trash', { noteId });
-      
-      // Clear current note if it was trashed
-      if (currentNote.value && currentNote.value.id === noteId) {
-        currentNote.value = null;
-      }
-      
-      // Reload notes list
-      await loadNotes();
-    } catch (err) {
-      error.value = err as string;
-      throw err;
-    }
-  }
-
-  async function restoreFromTrash(noteId: string) {
-    error.value = null;
-
-    try {
-      await invoke('restore_from_trash', { noteId });
-      
-      // Reload notes list
-      await loadNotes();
-    } catch (err) {
-      error.value = err as string;
-      throw err;
-    }
-  }
-
-  async function toggleFavorite(noteId: string) {
-    error.value = null;
-
-    try {
-      const isFavorite = await invoke<boolean>('toggle_favorite', { noteId });
-      
-      // Update current note if it's the same one
-      if (currentNote.value && currentNote.value.id === noteId) {
-        currentNote.value.is_favorite = isFavorite;
-      }
-      
-      // Reload notes list
-      await loadNotes();
-      
-      return isFavorite;
-    } catch (err) {
-      error.value = err as string;
-      throw err;
-    }
-  }
-
-  async function searchNotes(request: SearchRequest) {
-    isLoading.value = true;
-    error.value = null;
-
-    try {
-      const results = await invoke<NoteWithTags[]>('search_notes', { request });
-      return results;
-    } catch (err) {
-      error.value = err as string;
-      throw err;
+      error.value = err instanceof Error ? err.message : 'Failed to load trash'
     } finally {
-      isLoading.value = false;
+      loading.value = false
     }
   }
 
-  function setSearchQuery(query: string) {
-    searchQuery.value = query;
+  async function loadNotesByTag(tagName: string) {
+    try {
+      loading.value = true
+      error.value = null
+      notes.value = await api.getNotesByTag(tagName)
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to load notes by tag'
+    } finally {
+      loading.value = false
+    }
   }
 
-  function setTagFilter(tagName: string | null) {
-    selectedTagFilter.value = tagName;
+  async function createNote(title: string, content?: string) {
+    try {
+      const note = await api.createNote({ title, content })
+      notes.value.unshift(note)
+      currentNote.value = note
+      return note
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to create note'
+      throw err
+    }
   }
 
-  function clearCurrentNote() {
-    currentNote.value = null;
+  async function updateNote(id: string, updates: Partial<Note>) {
+    try {
+      const updatedNote = await api.updateNote({ id, ...updates })
+      if (updatedNote) {
+        const index = notes.value.findIndex(n => n.id === id)
+        if (index !== -1) {
+          notes.value[index] = updatedNote
+        }
+        if (currentNote.value?.id === id) {
+          currentNote.value = updatedNote
+        }
+      }
+      return updatedNote
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to update note'
+      throw err
+    }
   }
 
-  function clearError() {
-    error.value = null;
+  async function deleteNote(id: string) {
+    try {
+      await api.deleteNote(id)
+      const index = notes.value.findIndex(n => n.id === id)
+      if (index !== -1) {
+        notes.value.splice(index, 1)
+      }
+      if (currentNote.value?.id === id) {
+        currentNote.value = null
+      }
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to delete note'
+      throw err
+    }
+  }
+
+  async function searchNotes(query: string, tagFilter?: string) {
+    try {
+      loading.value = true
+      error.value = null
+      notes.value = await api.searchNotes({ query, tag_filter: tagFilter })
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to search notes'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  function setCurrentNote(note: Note | null) {
+    currentNote.value = note
   }
 
   return {
     notes,
     currentNote,
-    isLoading,
+    loading,
     error,
-    searchQuery,
-    selectedTagFilter,
-    filteredNotes,
-    favoriteNotes,
-    trashedNotes,
-    untaggedNotes,
+    sortedNotes,
     loadNotes,
-    loadNoteContent,
+    loadFavorites,
+    loadUntagged,
+    loadTrash,
+    loadNotesByTag,
     createNote,
-    saveNote,
+    updateNote,
     deleteNote,
-    moveToTrash,
-    restoreFromTrash,
-    toggleFavorite,
     searchNotes,
-    setSearchQuery,
-    setTagFilter,
-    clearCurrentNote,
-    clearError,
-  };
-});
+    setCurrentNote,
+  }
+})
