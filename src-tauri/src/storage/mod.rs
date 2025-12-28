@@ -44,16 +44,66 @@ impl FileStorageManager {
                 } else {
                     ""
                 };
-                
-                match serde_yaml::from_str::<NoteMetadata>(yaml_str) {
+
+                return match serde_yaml::from_str::<NoteMetadata>(yaml_str) {
                     Ok(mut metadata) => {
+                        let mut needs_update = false;
+
+                        // 1. 补齐缺失的 ID
                         if metadata.id.is_empty() {
                             metadata.id = uuid::Uuid::new_v4().to_string();
+                            needs_update = true;
                         }
-                        return Ok((metadata, body.to_string()));
+
+                        // 2. 补齐缺失的 Title
+                        if metadata.title.is_empty() {
+                            let mut title = self.extract_title_from_file_name(file_name);
+                            if let Some(first_line) = body.lines().next() {
+                                if first_line.starts_with("# ") {
+                                    let h1_title = first_line[2..].trim();
+                                    if !h1_title.is_empty() {
+                                        title = h1_title.to_string();
+                                    }
+                                }
+                            }
+                            metadata.title = title;
+                            needs_update = true;
+                        }
+
+                        // 3. 补齐缺失的时间信息
+                        let file_sys_metadata = fs::metadata(&file_path).ok();
+                        if metadata.created.is_empty() {
+                            let created_time: DateTime<Utc> = file_sys_metadata
+                                .as_ref()
+                                .and_then(|m| m.created().ok())
+                                .unwrap_or(std::time::SystemTime::now())
+                                .into();
+                            metadata.created = created_time.to_rfc3339();
+                            needs_update = true;
+                        }
+
+                        if metadata.modified.is_empty() {
+                            let modified_time: DateTime<Utc> = file_sys_metadata
+                                .as_ref()
+                                .and_then(|m| m.modified().ok())
+                                .unwrap_or(std::time::SystemTime::now())
+                                .into();
+                            metadata.modified = modified_time.to_rfc3339();
+                            needs_update = true;
+                        }
+
+                        // 如果进行了补齐，则写回文件
+                        if needs_update {
+                            log::info!("Repairing missing metadata for note: {}", file_name);
+                            if let Err(e) = self.save_note(file_name, &metadata, body) {
+                                log::error!("Failed to save repaired metadata for {}: {}", file_name, e);
+                            }
+                        }
+
+                        Ok((metadata, body.to_string()))
                     },
                     Err(e) => {
-                        return Err(anyhow::anyhow!("Failed to parse YAML header in {}: {}", file_name, e));
+                        Err(anyhow::anyhow!("Failed to parse YAML header in {}: {}", file_name, e))
                     }
                 }
             }
