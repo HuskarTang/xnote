@@ -1,6 +1,6 @@
 [package]
 name = "xnote"
-version = "0.1.0"
+version = "0.2.0"
 description = "A lightweight markdown note-taking application"
 authors = ["you"]
 license = ""
