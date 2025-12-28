@@ -101,9 +101,9 @@ XNote uses a three-pane layout:
 
 ### View Modes
 
-- **View Mode** (👁️): Read-only rendered Markdown
-- **Edit Mode** (✏️): Raw Markdown editing
-- **Split Mode** (📱): Side-by-side editing and preview
+- **View Mode**: Read-only rendered Markdown
+- **Edit Mode**: Raw Markdown editing
+- **Split Mode**: Side-by-side editing and preview
 
 ### Core Features
 
@@ -112,7 +112,7 @@ XNote uses a three-pane layout:
 - Notes are automatically saved as Markdown files
 
 #### Tag Management
-- Click the tag icon (🏷️) in the ActionBar
+- Click the tag icon in the ActionBar
 - Add, remove, or manage tags for notes
 
 #### Search
