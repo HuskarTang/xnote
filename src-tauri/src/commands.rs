@@ -467,19 +467,19 @@ pub async fn save_image_for_text(state: State<'_, Arc<AppState>>, filename: Stri
     // Get the notes directory from config
     let config_manager = state.config_manager.lock().unwrap();
     let notes_directory = config_manager.get_notes_directory();
-    let images_dir = notes_directory.join("images");
+    let attachments_dir = notes_directory.join("attachments");
     
-    // Create images directory if it doesn't exist
-    fs::create_dir_all(&images_dir)
-        .map_err(|e| format!("Failed to create images directory: {}", e))?;
+    // Create attachments directory if it doesn't exist
+    fs::create_dir_all(&attachments_dir)
+        .map_err(|e| format!("Failed to create attachments directory: {}", e))?;
     
     // Write the file
-    let file_path = images_dir.join(&filename);
+    let file_path = attachments_dir.join(&filename);
     fs::write(&file_path, &data)
         .map_err(|e| format!("Failed to write image file: {}", e))?;
     
     // Return relative path for markdown
-    let relative_path = format!("images/{}", filename);
+    let relative_path = format!("attachments/{}", filename);
     
     log_debug!("Successfully saved text image to: {}", file_path.display());
     Ok(relative_path)

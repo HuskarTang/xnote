@@ -257,8 +257,8 @@ const saveImageToAttachments = async (file: File): Promise<string> => {
   const extension = file.name.split('.').pop() || 'png'
   const filename = `Upload_${timestamp}.${extension}`
   
-  // Call Tauri command to save file to images directory for text content
-  const savedPath = await invoke<string>('save_image_for_text', {
+  // Call Tauri command to save file to attachments directory
+  const savedPath = await invoke<string>('save_image_to_attachments', {
     filename,
     data: Array.from(uint8Array)
   })
