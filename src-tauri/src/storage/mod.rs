@@ -94,7 +94,7 @@ impl FileStorageManager {
         let file_path = self.notes_directory.join(file_name);
         let yaml = serde_yaml::to_string(metadata)?;
         // Ensure there are newlines around YAML markers
-        let full_content = format!("---\n{}---\n\n{}", yaml, content);
+        let full_content = format!("---\n{}---\n{}", yaml, content);
         
         // Use atomic write: write to temp file then rename
         let temp_path = file_path.with_extension("tmp");
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn test_file_storage_creation() {
         let temp_dir = TempDir::new().unwrap();
-        let storage = FileStorageManager::new(temp_dir.path().to_path_buf()).unwrap();
+        let _storage = FileStorageManager::new(temp_dir.path().to_path_buf()).unwrap();
         
         assert!(temp_dir.path().exists());
     }

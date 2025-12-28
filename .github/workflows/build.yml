@@ -39,6 +39,9 @@ jobs:
         
       - name: Run frontend tests
         run: npm test
+
+      - name: Build frontend
+        run: npm run build
         
       - name: Run backend tests
         run: cd src-tauri && cargo test

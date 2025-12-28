@@ -16,7 +16,7 @@ use notes::NotesManager;
 use storage::FileStorageManager;
 use tags::TagsManager;
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, Menu, MenuItem, Submenu, CustomMenuItem, WindowMenuEvent};
+use tauri::{Menu, MenuItem, Submenu, CustomMenuItem, WindowMenuEvent};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
