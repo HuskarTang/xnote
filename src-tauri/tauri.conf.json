@@ -90,7 +90,7 @@
       }
     },
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: file: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'unsafe-eval' 'unsafe-inline';"
+      "csp": "default-src 'self'; img-src 'self' data: asset: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'unsafe-eval' 'unsafe-inline';"
     },
     "updater": {
       "active": false

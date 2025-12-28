@@ -13,7 +13,7 @@ async function getDataDirectory(): Promise<string> {
       dataDirectory = await invoke<string>('get_data_directory');
     } catch (error) {
       console.error('Failed to get data directory:', error);
-      return '/Users/huskar/Documents/XNote'; // 回退到默认值
+      return ''; // 回退到空字符串
     }
   }
   return dataDirectory;
@@ -147,6 +147,7 @@ export async function renderMarkdown(content: string): Promise<string> {
             srcPath.startsWith('http') || 
             srcPath.startsWith('https') || 
             srcPath.startsWith('data:') ||
+            srcPath.startsWith('asset:') ||
             srcPath.startsWith('tauri://')) {
           continue;
         }
