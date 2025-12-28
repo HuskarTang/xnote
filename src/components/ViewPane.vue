@@ -1,9 +1,8 @@
 <template>
-  <div class="view-pane-container">
+  <div class="view-pane-container" @scroll="handleScroll">
     <div 
       class="markdown-content"
       v-html="renderedContent"
-      @scroll="handleScroll"
     ></div>
   </div>
 </template>
@@ -23,22 +22,43 @@ const props = defineProps<{
 }>()
 
 // 渲染后的内容
-const renderedContent = computed(() => {
+const renderedContent = ref('<div class="empty-preview">No content to preview</div>')
+
+// 渲染内容的函数
+const updateRenderedContent = async () => {
+  let content = ''
+  
   // 如果提供了 content prop（分屏模式），则使用它
   if (props.content !== undefined) {
+    console.log('ViewPane: Using props.content', props.content);
     if (!props.content) {
-      return '<div class="empty-preview">No content to preview</div>'
+      renderedContent.value = '<div class="empty-preview">No content to preview</div>'
+      return
     }
-    return renderMarkdown(props.content)
+    content = props.content
+  } else {
+    // 否则使用 currentNote.content（普通模式）
+    console.log('ViewPane: Using currentNote.content', currentNote.value?.content);
+    if (!currentNote.value?.content) {
+      renderedContent.value = '<div class="empty-preview">No content to preview</div>'
+      return
+    }
+    content = currentNote.value.content
   }
   
-  // 否则使用 currentNote.content（普通模式）
-  if (!currentNote.value?.content) {
-    return '<div class="empty-preview">No content to preview</div>'
+  try {
+    const result = await renderMarkdown(content)
+    console.log('ViewPane: Rendered result', result);
+    renderedContent.value = result
+  } catch (error) {
+    console.error('ViewPane: Error rendering markdown', error);
+    renderedContent.value = `<pre>${content}</pre>`
   }
-  
-  return renderMarkdown(currentNote.value.content)
-})
+}
+
+// 监听内容变化
+watch(() => props.content, updateRenderedContent, { immediate: true })
+watch(() => currentNote.value?.content, updateRenderedContent, { immediate: true })
 
 // 处理滚动（用于分屏模式同步滚动，暂时预留）
 const handleScroll = () => {

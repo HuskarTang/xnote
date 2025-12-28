@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Markdown Test</title>
+</head>
+<body>
+    <h1>Markdown Test</h1>
+    <div id="content"></div>
+
+    <script type="module">
+        import { Marked } from 'https://cdn.jsdelivr.net/npm/marked@5.1.2/lib/marked.esm.js';
+        import { markedHighlight } from 'https://cdn.jsdelivr.net/npm/marked-highlight@2.2.2/lib/index.esm.js';
+        import hljs from 'https://cdn.jsdelivr.net/npm/highlight.js@11.8.0/es/core.min.js';
+        import javascript from 'https://cdn.jsdelivr.net/npm/highlight.js@11.8.0/es/languages/javascript.min.js';
+        
+        hljs.registerLanguage('javascript', javascript);
+        
+        const marked = new Marked(
+          markedHighlight({
+            langPrefix: 'hljs language-',
+            highlight(code, lang) {
+              const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+              try {
+                return hljs.highlight(code, { language }).value;
+              } catch (err) {
+                console.warn('Highlight.js error:', err);
+                return code;
+              }
+            }
+          })
+        );
+        
+        const testContent = `# Hello World
+        
+This is a **bold** text and this is *italic* text.
+
+## Code Example
+
+\`\`\`javascript
+console.log('Hello, world!');
+\`\`\`
+
+## List
+
+- Item 1
+- Item 2
+- Item 3
+`;
+        
+        const result = marked.parse(testContent);
+        document.getElementById('content').innerHTML = result;
+    </script>
+</body>
+</html>

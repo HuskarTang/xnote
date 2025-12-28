@@ -1,8 +1,25 @@
 # XNote
 
-XNote is a cross-platform lightweight Markdown note-taking application built with Vue 3, TypeScript, and Tauri. It provides a rich text editing experience with support for Markdown syntax, image pasting, and tag-based organization.
+<div align="center">
+
+![XNote Logo](src-tauri/icons/128x128.png)
+
+**A lightweight, cross-platform Markdown note-taking application**
+
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/HuskarTang/xnote)
+[![Release](https://img.shields.io/badge/release-v0.1.0-blue.svg)](https://github.com/HuskarTang/xnote/releases)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#installation)
+
+[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Development](#development) • [Contributing](#contributing)
 
 ![XNote Screenshot](attachments/Clipboard_2025-09-05-16-23-00.png)
+
+</div>
+
+---
+
+XNote is a modern, cross-platform note-taking application built with Vue 3, TypeScript, and Tauri. It combines the power of Markdown with an intuitive interface, offering seamless note organization through tags and powerful search capabilities.
 
 ## Features
 
@@ -26,45 +43,52 @@ XNote is a cross-platform lightweight Markdown note-taking application built wit
   - Attachments directory for media files
 - **Configuration**: JSON format (config.json)
 
-## Installation
+## 🚀 Installation
 
-### Prerequisites
+### Download Pre-built Releases
 
-- Node.js (v16 or higher)
-- Rust (via rustup)
-- Tauri CLI
+**[📥 Download the latest release](https://github.com/HuskarTang/xnote/releases/latest)**
 
-### Setup
+| Platform | Download |
+|----------|----------|
+| 🪟 **Windows** | [XNote-setup.exe](https://github.com/HuskarTang/xnote/releases/latest/download/XNote-setup.exe) |
+| 🍎 **macOS** | [XNote.dmg](https://github.com/HuskarTang/xnote/releases/latest/download/XNote.dmg) |
+| 🐧 **Linux** | [XNote.AppImage](https://github.com/HuskarTang/xnote/releases/latest/download/XNote.AppImage) |
 
-1. Clone the repository:
+### Build from Source
+
+#### Prerequisites
+
+- **Node.js** (v16 or higher) - [Download](https://nodejs.org/)
+- **Rust** (latest stable) - [Install via rustup](https://rustup.rs/)
+- **Git** - [Download](https://git-scm.com/)
+
+#### Quick Start
+
 ```bash
-git clone <repository-url>
+# Clone the repository
+git clone https://github.com/HuskarTang/xnote.git
 cd xnote
-```
 
-2. Install frontend dependencies:
-```bash
+# Install dependencies
 npm install
-```
 
-3. Install Tauri CLI:
-```bash
-npm install -g @tauri-apps/cli
-```
-
-### Development
-
-Start the development server:
-```bash
+# Run in development mode
 npm run tauri dev
 ```
 
-### Building
+#### Building for Production
 
-Build the application for production:
 ```bash
+# Build for your current platform
 npm run tauri build
+
+# Or use our build script
+chmod +x build-release.sh
+./build-release.sh
 ```
+
+The built application will be available in `src-tauri/target/release/bundle/`.
 
 ## Usage
 
@@ -172,21 +196,71 @@ cd src-tauri
 cargo test
 ```
 
-## Contributing
+## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
-## License
+### Quick Start for Contributors
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+1. **Fork** the repository
+2. **Clone** your fork: `git clone https://github.com/HuskarTang/xnote.git`
+3. **Create** a feature branch: `git checkout -b feature/amazing-feature`
+4. **Make** your changes and **test** them
+5. **Commit** your changes: `git commit -m 'Add amazing feature'`
+6. **Push** to the branch: `git push origin feature/amazing-feature`
+7. **Open** a Pull Request
 
-## Acknowledgments
+### Development Setup
 
-- [Tauri](https://tauri.studio/) for the desktop application framework
-- [Vue.js](https://vuejs.org/) for the frontend framework
-- [Marked.js](https://marked.js.org/) for Markdown parsing
-- [Highlight.js](https://highlightjs.org/) for code syntax highlighting
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npm run tauri dev
+
+# Run tests
+npm test                    # Frontend tests
+cd src-tauri && cargo test  # Backend tests
+
+# Build for production
+./build-release.sh
+```
+
+### Reporting Issues
+
+Found a bug? Have a feature request? Please [open an issue](https://github.com/HuskarTang/xnote/issues/new) with:
+
+- 🐛 **Bug reports**: Steps to reproduce, expected vs actual behavior
+- 💡 **Feature requests**: Clear description of the proposed feature
+- 📚 **Documentation**: Improvements or corrections needed
+
+## 📄 License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [**Tauri**](https://tauri.app/) - For the amazing desktop application framework
+- [**Vue.js**](https://vuejs.org/) - For the reactive frontend framework
+- [**Rust**](https://www.rust-lang.org/) - For the fast and safe backend
+- [**Marked.js**](https://marked.js.org/) - For Markdown parsing
+- [**Highlight.js**](https://highlightjs.org/) - For code syntax highlighting
+- [**CodeMirror**](https://codemirror.net/) - For the code editor component
+
+## 📊 Project Stats
+
+![GitHub stars](https://img.shields.io/github/stars/HuskarTang/xnote?style=social)
+![GitHub forks](https://img.shields.io/github/forks/HuskarTang/xnote?style=social)
+![GitHub issues](https://img.shields.io/github/issues/HuskarTang/xnote)
+![GitHub pull requests](https://img.shields.io/github/issues-pr/HuskarTang/xnote)
+
+---
+
+<div align="center">
+
+**[⬆ Back to Top](#xnote)**
+
+Made with ❤️ by the XNote team
+
+</div>

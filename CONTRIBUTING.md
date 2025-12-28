@@ -1,221 +1,176 @@
-# Contributing to MDNote
+# Contributing to XNote
 
-Thank you for your interest in contributing to MDNote! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to XNote! This document provides guidelines and information for contributors.
 
-## Development Setup
+## 🚀 Getting Started
 
 ### Prerequisites
 
-1. **Rust** (latest stable) - [Install Rust](https://rustup.rs/)
-2. **Node.js** (v16 or later) - [Install Node.js](https://nodejs.org/)
-3. **Git** - [Install Git](https://git-scm.com/)
+- Node.js (v16 or higher)
+- Rust (latest stable)
+- Git
 
-### Platform-specific Requirements
+### Development Setup
 
-#### Windows
-- Microsoft Visual Studio C++ Build Tools
-- WebView2 (usually pre-installed on Windows 10/11)
-
-#### macOS
-- Xcode Command Line Tools: `xcode-select --install`
-
-#### Linux (Ubuntu/Debian)
-```bash
-sudo apt update
-sudo apt install libwebkit2gtk-4.0-dev \
-    build-essential \
-    curl \
-    wget \
-    libssl-dev \
-    libgtk-3-dev \
-    libayatana-appindicator3-dev \
-    librsvg2-dev
-```
-
-### Getting Started
-
-1. **Fork and Clone**
+1. Fork the repository on GitHub
+2. Clone your fork locally:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/mdnote.git
-   cd mdnote
+   git clone https://github.com/HuskarTang/xnote.git
+   cd xnote
    ```
-
-2. **Install Dependencies**
+3. Install dependencies:
    ```bash
    npm install
    ```
-
-3. **Run Development Server**
+4. Start the development server:
    ```bash
-   # Using npm scripts
    npm run tauri dev
-   
-   # Or using our helper scripts
-   ./scripts/dev.sh      # Linux/macOS
-   scripts\dev.bat       # Windows
    ```
 
-## Project Structure
-
-```
-mdnote/
-├── src/                  # Vue 3 frontend
-│   ├── components/       # Reusable Vue components
-│   ├── stores/           # Pinia state management
-│   ├── views/            # Page components
-│   ├── styles/           # SCSS stylesheets
-│   └── types/            # TypeScript type definitions
-├── src-tauri/            # Rust backend
-│   ├── src/
-│   │   ├── commands/     # Tauri command handlers
-│   │   ├── database.rs   # SQLite operations
-│   │   ├── models.rs     # Data models
-│   │   └── main.rs       # Application entry point
-│   └── Cargo.toml        # Rust dependencies
-├── scripts/              # Build and development scripts
-└── docs/                 # Documentation and assets
-```
-
-## Development Guidelines
-
-### Code Style
-
-#### Rust
-- Follow standard Rust formatting with `rustfmt`
-- Use `clippy` for linting
-- Write documentation for public APIs
-- Use meaningful variable and function names
-
-#### TypeScript/Vue
-- Use TypeScript for all new code
-- Follow Vue 3 Composition API patterns
-- Use Pinia for state management
-- Write component documentation
-
-#### SCSS
-- Use the existing variable system in `src/styles/variables.scss`
-- Follow BEM naming convention for CSS classes
-- Keep styles scoped to components when possible
-
-### Commit Guidelines
-
-We follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
-
-- `feat:` - New features
-- `fix:` - Bug fixes
-- `docs:` - Documentation changes
-- `style:` - Code style changes (formatting, etc.)
-- `refactor:` - Code refactoring
-- `test:` - Adding or updating tests
-- `chore:` - Maintenance tasks
-
-Examples:
-```
-feat: add export to PDF functionality
-fix: resolve auto-save timing issue
-docs: update installation instructions
-```
-
-### Testing
-
-Currently, the project focuses on manual testing. When adding new features:
-
-1. Test on multiple platforms (Windows, macOS, Linux)
-2. Test edge cases (empty notes, large files, special characters)
-3. Verify database operations work correctly
-4. Check that the UI remains responsive
-
-### Pull Request Process
-
-1. **Create a Feature Branch**
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-
-2. **Make Your Changes**
-   - Write clean, documented code
-   - Test your changes thoroughly
-   - Update documentation if needed
-
-3. **Commit Your Changes**
-   ```bash
-   git add .
-   git commit -m "feat: add your feature description"
-   ```
-
-4. **Push and Create PR**
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-   Then create a Pull Request on GitHub.
-
-5. **PR Requirements**
-   - Clear description of changes
-   - Screenshots for UI changes
-   - Testing instructions
-   - Link to related issues
-
-## Feature Requests and Bug Reports
+## 🐛 Reporting Issues
 
 ### Bug Reports
 
 When reporting bugs, please include:
 
-1. **Environment Information**
-   - Operating System and version
-   - MDNote version
-   - Steps to reproduce
-
-2. **Expected vs Actual Behavior**
-   - What you expected to happen
-   - What actually happened
-   - Screenshots if applicable
-
-3. **Additional Context**
-   - Error messages
-   - Log files (if available)
-   - Related configuration
+- **Description**: Clear description of the issue
+- **Steps to reproduce**: Detailed steps to reproduce the bug
+- **Expected behavior**: What you expected to happen
+- **Actual behavior**: What actually happened
+- **Environment**: OS, Node.js version, Rust version
+- **Screenshots**: If applicable
 
 ### Feature Requests
 
-For feature requests, please provide:
+When requesting features, please include:
 
-1. **Use Case**: Why is this feature needed?
-2. **Proposed Solution**: How should it work?
-3. **Alternatives**: Any alternative solutions considered?
-4. **Additional Context**: Screenshots, mockups, or examples
+- **Description**: Clear description of the feature
+- **Use case**: Why this feature would be useful
+- **Implementation ideas**: If you have any thoughts on implementation
 
-## Architecture Decisions
+## 💻 Development Guidelines
 
-### Why Tauri?
-- Cross-platform desktop applications with web technologies
-- Smaller bundle size compared to Electron
-- Better security model
-- Native performance for system operations
+### Code Style
 
-### Why Vue 3?
-- Excellent TypeScript support
-- Composition API for better code organization
-- Reactive state management with Pinia
-- Great developer experience
+- **Frontend**: Follow Vue.js and TypeScript best practices
+- **Backend**: Follow Rust conventions and use `cargo fmt`
+- **Commits**: Use conventional commit messages
 
-### Why SQLite?
-- Lightweight and embedded
-- No external database server required
-- ACID compliance for data integrity
-- Excellent Rust support with sqlx
+### Testing
 
-## Getting Help
+- Write tests for new features
+- Ensure all tests pass before submitting PR
+- Run both frontend and backend tests:
+  ```bash
+  npm test                    # Frontend
+  cd src-tauri && cargo test  # Backend
+  ```
 
-- **GitHub Discussions**: For questions and community support
-- **GitHub Issues**: For bug reports and feature requests
-- **Documentation**: Check the README and inline code documentation
+### Pull Request Process
 
-## Recognition
+1. Create a feature branch from `main`
+2. Make your changes
+3. Add tests if applicable
+4. Update documentation if needed
+5. Ensure all tests pass
+6. Submit a pull request
 
-Contributors will be recognized in:
-- The project's README
-- Release notes for significant contributions
-- GitHub's contributor graphs
+### Commit Message Format
 
-Thank you for contributing to MDNote! 🎉
+Use conventional commits:
+
+```
+type(scope): description
+
+[optional body]
+
+[optional footer]
+```
+
+Types:
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style changes
+- `refactor`: Code refactoring
+- `test`: Adding tests
+- `chore`: Maintenance tasks
+
+## 📁 Project Structure
+
+```
+xnote/
+├── src/                    # Frontend Vue.js code
+│   ├── components/         # Vue components
+│   ├── stores/             # Pinia stores
+│   ├── types/              # TypeScript types
+│   └── utils/              # Utility functions
+├── src-tauri/              # Backend Rust code
+│   ├── src/                # Rust source code
+│   │   ├── config/         # Configuration management
+│   │   ├── database/       # Database operations
+│   │   ├── notes/          # Note management
+│   │   ├── storage/        # File storage
+│   │   └── tags/           # Tag management
+│   ├── Cargo.toml          # Rust dependencies
+│   └── tauri.conf.json     # Tauri configuration
+└── build-release.sh        # Build script
+```
+
+## 🔧 Building and Testing
+
+### Development Build
+
+```bash
+npm run tauri dev
+```
+
+### Production Build
+
+```bash
+npm run tauri build
+# or
+./build-release.sh
+```
+
+### Running Tests
+
+```bash
+# Frontend tests
+npm test
+
+# Backend tests
+cd src-tauri
+cargo test
+
+# All tests
+npm run test:all
+```
+
+## 📝 Documentation
+
+- Update README.md for user-facing changes
+- Add inline code comments for complex logic
+- Update this CONTRIBUTING.md for process changes
+
+## 🎯 Areas for Contribution
+
+We welcome contributions in these areas:
+
+- **Bug fixes**: Help us squash bugs
+- **Features**: Implement new functionality
+- **Documentation**: Improve docs and examples
+- **Testing**: Add test coverage
+- **Performance**: Optimize code performance
+- **UI/UX**: Improve user interface and experience
+
+## 📞 Getting Help
+
+- **Issues**: [GitHub Issues](https://github.com/HuskarTang/xnote/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/HuskarTang/xnote/discussions)
+
+## 📄 License
+
+By contributing to XNote, you agree that your contributions will be licensed under the MIT License.
+
+Thank you for contributing! 🎉

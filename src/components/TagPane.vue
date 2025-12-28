@@ -1,10 +1,5 @@
 <template>
   <div class="tag-pane-container">
-    <!-- 标题 -->
-    <div class="tag-pane-header">
-      <h2 class="app-title">XNote</h2>
-    </div>
-
     <!-- 主要视图 -->
     <div class="tag-sections">
       <!-- All Notes -->
@@ -89,39 +84,87 @@
         </div>
       </div>
     </div>
+    
+    <!-- 同步按钮 -->
+    <div class="sync-section" v-if="showSyncButton">
+      <button class="sync-btn" @click="openSyncDialog" :disabled="!gitSyncEnabled" title="同步">
+        🔄
+      </button>
+    </div>
+    
+    <!-- 同步对话框 -->
+    <SyncDialog v-if="showSyncDialog" @close="closeSyncDialog" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useTagsStore } from '@/stores/tags'
 import { useNotesStore } from '@/stores/notes'
+import { api } from '@/utils/api'
+import SyncDialog from './SyncDialog.vue'
 
 const tagsStore = useTagsStore()
 const notesStore = useNotesStore()
 
 const { tags, selectedTag } = storeToRefs(tagsStore)
-const { notes } = storeToRefs(notesStore)
 
 const showAllTags = ref(true) // 始终展开用户标签
 
-// 计算各种统计数量
-const allNotesCount = computed(() => {
-  return notes.value.filter(note => !note.is_deleted).length
-})
+// 统计数据 - 直接从API获取准确数据
+const allNotesCount = ref(0)
+const favoritesCount = ref(0) 
+const untaggedCount = ref(0)
+const trashCount = ref(0)
 
-const favoritesCount = computed(() => {
-  return notes.value.filter(note => !note.is_deleted && note.is_favorite).length
-})
+// 同步相关
+const showSyncButton = ref(false)
+const gitSyncEnabled = ref(false)
+const showSyncDialog = ref(false)
 
-const untaggedCount = computed(() => {
-  return notes.value.filter(note => !note.is_deleted && note.tags.length === 0).length
-})
 
-const trashCount = computed(() => {
-  return notes.value.filter(note => note.is_deleted).length
-})
+// 加载统计数据
+const loadStatistics = async () => {
+  try {
+    const [allNotes, favorites, untagged, trash] = await Promise.all([
+      api.getAllNotes(),
+      api.getFavorites(), 
+      api.getUntagged(),
+      api.getTrash()
+    ])
+    
+    allNotesCount.value = allNotes.length
+    favoritesCount.value = favorites.length
+    untaggedCount.value = untagged.length
+    trashCount.value = trash.length
+  } catch (error) {
+    console.error('Failed to load statistics:', error)
+  }
+}
+
+// 检查Git同步配置
+const checkGitSyncConfig = async () => {
+  try {
+    const config = await api.getGitSyncConfig()
+    if (config && config.enabled && config.repository_url) {
+      showSyncButton.value = true
+      gitSyncEnabled.value = true
+    }
+  } catch (error) {
+    console.error('Failed to check git sync config:', error)
+  }
+}
+
+// 打开同步对话框
+const openSyncDialog = () => {
+  showSyncDialog.value = true
+}
+
+// 关闭同步对话框
+const closeSyncDialog = () => {
+  showSyncDialog.value = false
+}
 
 async function selectTag(tagName: string) {
   tagsStore.setSelectedTag(tagName)
@@ -150,9 +193,41 @@ async function selectTag(tagName: string) {
   }
 }
 
-onMounted(() => {
-  // 默认选择 All Notes
-  selectTag('All Notes')
+// 监听笔记变化，刷新统计
+const refreshStatistics = () => {
+  loadStatistics()
+  tagsStore.loadTags()
+}
+
+onMounted(async () => {
+  // 加载标签和统计数据
+  await Promise.all([
+    tagsStore.loadTags(),
+    loadStatistics(),
+    checkGitSyncConfig()
+  ])
+  
+  // 监听笔记变化事件
+  window.addEventListener('note-created', refreshStatistics)
+  window.addEventListener('note-updated', refreshStatistics)
+  window.addEventListener('note-deleted', refreshStatistics)
+  window.addEventListener('note-permanently-deleted', refreshStatistics)
+  window.addEventListener('note-restored', refreshStatistics)
+})
+
+// 清理事件监听器
+onUnmounted(() => {
+  window.removeEventListener('note-created', refreshStatistics)
+  window.removeEventListener('note-updated', refreshStatistics)
+  window.removeEventListener('note-deleted', refreshStatistics)
+  window.removeEventListener('note-permanently-deleted', refreshStatistics)
+  window.removeEventListener('note-restored', refreshStatistics)
+})
+
+// 暴露刷新方法给外部组件使用
+defineExpose({
+  refreshStatistics,
+  checkGitSyncConfig
 })
 </script>
 
@@ -268,4 +343,34 @@ onMounted(() => {
 .tag-sections::-webkit-scrollbar-thumb:hover {
   background-color: #4d4d4d;
 }
+
+/* 同步按钮样式 */
+.sync-section {
+  padding: 8px 16px;
+  border-top: 1px solid #3d3d3d;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.sync-btn {
+  background: none;
+  border: none;
+  color: #cccccc;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.sync-btn:hover:not(:disabled) {
+  color: #ffffff;
+  background-color: #3d3d3d;
+}
+
+.sync-btn:disabled {
+  color: #666666;
+  cursor: not-allowed;
+}
+
 </style>

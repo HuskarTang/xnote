@@ -1,67 +1,92 @@
 <template>
-  <div class="tag-manager">
-    <div class="tag-manager-header">
-      <h3>Manage Tags</h3>
-      <button @click="$emit('close')" class="close-btn">×</button>
-    </div>
-    
-    <div class="tag-manager-content">
-      <div class="current-tags">
-        <div class="section-title">Current Tags</div>
-        <div v-if="currentTags.length === 0" class="empty-state">
-          No tags assigned
-        </div>
-        <div v-else class="tag-list">
-          <div
-            v-for="tag in currentTags"
-            :key="tag.id"
-            class="tag-item"
-          >
-            <span class="tag-color" :style="{ backgroundColor: tag.color || '#6c757d' }"></span>
-            <span class="tag-name">{{ tag.name }}</span>
-            <button
-              @click="removeTag(tag.id)"
-              class="remove-tag-btn"
-              title="Remove tag"
-            >
-              ×
-            </button>
-          </div>
-        </div>
+  <div v-if="visible" class="tag-manager-overlay" @click="handleOverlayClick">
+    <div class="tag-manager-dialog" @click.stop>
+      <div class="dialog-header">
+        <h3>标签管理</h3>
+        <button class="close-button" @click="closeDialog">×</button>
       </div>
       
-      <div class="add-tag-section">
-        <div class="section-title">Add Tag</div>
-        <div class="add-tag-input">
-          <input
-            v-model="newTagName"
-            @keyup.enter="addTag"
-            type="text"
-            placeholder="Enter tag name..."
-            class="tag-input"
-          />
-          <button
-            @click="addTag"
-            :disabled="!newTagName.trim()"
-            class="add-tag-btn"
-          >
-            Add
-          </button>
-        </div>
-        
-        <div v-if="availableTags.length > 0" class="available-tags">
-          <div class="section-subtitle">Or select from existing:</div>
-          <div class="tag-suggestions">
-            <button
-              v-for="tag in availableTags"
-              :key="tag.id"
-              @click="addExistingTag(tag.name)"
-              class="tag-suggestion"
+      <div class="dialog-content">
+        <!-- 添加新标签 -->
+        <div class="add-tag-section">
+          <div class="input-group">
+            <input
+              ref="tagInputRef"
+              v-model="newTagName"
+              type="text"
+              placeholder="输入标签名..."
+              class="tag-input"
+              @keyup.enter="addTag"
+              @input="handleInputChange"
+            />
+            <button 
+              class="add-button"
+              :disabled="!newTagName.trim() || loading"
+              @click="addTag"
             >
-              <span class="tag-color" :style="{ backgroundColor: tag.color || '#6c757d' }"></span>
-              {{ tag.name }}
+              添加
             </button>
           </div>
+          
+          <!-- 标签建议列表 -->
+          <div v-if="filteredSuggestions.length > 0" class="suggestions-list">
+            <div
+              v-for="tag in filteredSuggestions"
+              :key="tag.id"
+              class="suggestion-item"
+              @click="selectSuggestion(tag)"
+            >
+              <span class="suggestion-name">{{ tag.name }}</span>
+              <span class="suggestion-count">({{ tag.note_count }})</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 当前笔记的标签 -->
+        <div v-if="currentNoteTags.length > 0" class="current-tags-section">
+          <h4>当前标签</h4>
+          <div class="tags-list">
+            <div
+              v-for="tag in currentNoteTags"
+              :key="tag.id"
+              class="tag-item current-tag"
+            >
+              <span class="tag-name">{{ tag.name }}</span>
+              <button 
+                class="remove-tag-button"
+                @click="removeTagFromNote(tag.name)"
+                title="删除标签"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 所有标签 -->
+        <div v-if="availableTags.length > 0" class="all-tags-section">
+          <h4>可用标签</h4>
+          <div class="tags-list">
+            <div
+              v-for="tag in availableTags"
+              :key="tag.id"
+              class="tag-item available-tag"
+              @click="addTagToCurrentNote(tag.name)"
+            >
+              <span class="tag-name">{{ tag.name }}</span>
+              <span class="tag-count">({{ tag.note_count }})</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 加载状态 -->
+        <div v-if="loading" class="loading-indicator">
+          <span>加载中...</span>
+        </div>
+        
+        <!-- 错误信息 -->
+        <div v-if="error" class="error-message">
+          {{ error }}
         </div>
       </div>
     </div>
@@ -69,242 +94,412 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { useTagsStore } from '@/stores/tags';
-import type { Tag } from '@/types';
+import { ref, computed, watch, nextTick } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useTagsStore } from '@/stores/tags'
+import type { Tag } from '@/types'
 
-interface Props {
-  noteId: string;
-  currentTags: Tag[];
-}
+// Props
+const props = defineProps<{
+  visible: boolean
+  noteId: string | null
+}>()
 
-interface Emits {
-  (e: 'close'): void;
-  (e: 'tags-updated'): void;
-}
+// Emits
+const emit = defineEmits<{
+  close: []
+  tagAdded: [tag: Tag]
+  tagRemoved: [tagName: string]
+}>()
 
-const props = defineProps<Props>();
-const emit = defineEmits<Emits>();
+const tagsStore = useTagsStore()
+const { tags, loading, error } = storeToRefs(tagsStore)
 
-const tagsStore = useTagsStore();
-const newTagName = ref('');
+// Reactive data
+const newTagName = ref('')
+const currentNoteTags = ref<Tag[]>([])
+const tagInputRef = ref<HTMLInputElement>()
 
-const availableTags = computed(() => {
-  const currentTagIds = new Set(props.currentTags.map(tag => tag.id));
-  return tagsStore.tags.filter(tag => !currentTagIds.has(tag.id));
-});
-
-async function addTag() {
-  const tagName = newTagName.value.trim();
-  if (!tagName) return;
+// 过滤建议标签（基于输入内容）
+const filteredSuggestions = computed(() => {
+  if (!newTagName.value.trim()) return []
   
-  try {
-    await tagsStore.addTagToNote(props.noteId, tagName);
-    newTagName.value = '';
-    emit('tags-updated');
-  } catch (error) {
-    console.error('Failed to add tag:', error);
+  const query = newTagName.value.toLowerCase()
+  const currentTagNames = currentNoteTags.value.map(tag => tag.name.toLowerCase())
+  
+  return tags.value
+    .filter(tag => 
+      tag.name.toLowerCase().includes(query) && 
+      !currentTagNames.includes(tag.name.toLowerCase())
+    )
+    .slice(0, 5) // 最多显示5个建议
+})
+
+// 可用标签（排除当前笔记已有的标签）
+const availableTags = computed(() => {
+  if (!currentNoteTags.value.length) return tags.value
+  
+  const currentTagNames = currentNoteTags.value.map(tag => tag.name.toLowerCase())
+  return tags.value.filter(tag => !currentTagNames.includes(tag.name.toLowerCase()))
+})
+
+// 处理输入变化
+const handleInputChange = () => {
+  // 可以在这里实现实时搜索
+}
+
+// 选择建议标签
+const selectSuggestion = (tag: Tag) => {
+  newTagName.value = tag.name
+  addTag()
+}
+
+// 添加标签
+const addTag = async () => {
+  if (!newTagName.value.trim() || !props.noteId) return
+  
+  const tagName = newTagName.value.trim()
+  const tag = await tagsStore.addTagToNote(props.noteId, tagName)
+  
+  if (tag) {
+    newTagName.value = ''
+    await loadCurrentNoteTags()
+    emit('tagAdded', tag)
   }
 }
 
-async function addExistingTag(tagName: string) {
-  try {
-    await tagsStore.addTagToNote(props.noteId, tagName);
-    emit('tags-updated');
-  } catch (error) {
-    console.error('Failed to add tag:', error);
+// 从笔记移除标签
+const removeTagFromNote = async (tagName: string) => {
+  if (!props.noteId) return
+  
+  const success = await tagsStore.removeTagFromNote(props.noteId, tagName)
+  if (success) {
+    await loadCurrentNoteTags()
+    emit('tagRemoved', tagName)
   }
 }
 
-async function removeTag(tagId: string) {
-  try {
-    await tagsStore.removeTagFromNote(props.noteId, tagId);
-    emit('tags-updated');
-  } catch (error) {
-    console.error('Failed to remove tag:', error);
+// 添加标签到当前笔记
+const addTagToCurrentNote = async (tagName: string) => {
+  if (!props.noteId) return
+  
+  const tag = await tagsStore.addTagToNote(props.noteId, tagName)
+  if (tag) {
+    await loadCurrentNoteTags()
+    emit('tagAdded', tag)
   }
 }
 
-onMounted(() => {
-  // Load all tags to show suggestions
-  tagsStore.loadTags();
-});
+// 加载当前笔记的标签
+const loadCurrentNoteTags = async () => {
+  if (!props.noteId) {
+    currentNoteTags.value = []
+    return
+  }
+  
+  currentNoteTags.value = await tagsStore.getNoteTags(props.noteId)
+}
+
+// 关闭弹窗
+const closeDialog = () => {
+  newTagName.value = ''
+  emit('close')
+}
+
+// 处理遮罩点击
+const handleOverlayClick = (event: MouseEvent) => {
+  if (event.target === event.currentTarget) {
+    closeDialog()
+  }
+}
+
+// 监听弹窗显示状态
+watch(() => props.visible, async (visible) => {
+  if (visible) {
+    await tagsStore.loadTags()
+    await loadCurrentNoteTags()
+    // 聚焦输入框
+    nextTick(() => {
+      tagInputRef.value?.focus()
+    })
+  }
+})
+
+// 监听笔记ID变化
+watch(() => props.noteId, async () => {
+  if (props.visible) {
+    await loadCurrentNoteTags()
+  }
+})
 </script>
 
-<style lang="scss" scoped>
-.tag-manager {
-  position: absolute;
-  top: 60px;
-  right: 16px;
-  width: 300px;
-  background: white;
-  border: 1px solid #e1e5e9;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+<style scoped>
+.tag-manager-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: 1000;
 }
 
-.tag-manager-header {
+.tag-manager-dialog {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow: hidden;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px;
-  border-bottom: 1px solid #e1e5e9;
-  
-  h3 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-  }
+  flex-direction: column;
 }
 
-.close-btn {
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e5e5;
+  background-color: #f8f9fa;
+}
+
+.dialog-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.close-button {
   background: none;
   border: none;
-  font-size: 20px;
+  font-size: 24px;
+  color: #666;
   cursor: pointer;
-  color: #6c757d;
-  
-  &:hover {
-    color: #2c3e50;
-  }
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.2s;
 }
 
-.tag-manager-content {
-  padding: 16px;
-  max-height: 400px;
+.close-button:hover {
+  background-color: #e9ecef;
+  color: #333;
+}
+
+.dialog-content {
+  flex: 1;
+  padding: 20px;
   overflow-y: auto;
 }
 
-.section-title {
+.add-tag-section {
+  margin-bottom: 24px;
+  position: relative;
+}
+
+.input-group {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tag-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
   font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 8px;
-  color: #2c3e50;
+  outline: none;
+  transition: border-color 0.2s;
 }
 
-.section-subtitle {
+.tag-input:focus {
+  border-color: #007acc;
+  box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.1);
+}
+
+.add-button {
+  padding: 8px 16px;
+  background-color: #007acc;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+}
+
+.add-button:hover:not(:disabled) {
+  background-color: #0066b3;
+}
+
+.add-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.suggestions-list {
+  background: white;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.suggestion-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background-color 0.2s;
+}
+
+.suggestion-item:hover {
+  background-color: #f8f9fa;
+}
+
+.suggestion-item:not(:last-child) {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.suggestion-name {
+  font-size: 14px;
+  color: #333;
+}
+
+.suggestion-count {
   font-size: 12px;
-  color: #6c757d;
-  margin-bottom: 8px;
+  color: #666;
 }
 
-.current-tags {
+.current-tags-section,
+.all-tags-section {
   margin-bottom: 20px;
 }
 
-.empty-state {
-  color: #6c757d;
+.current-tags-section h4,
+.all-tags-section h4 {
+  margin: 0 0 12px 0;
   font-size: 14px;
-  font-style: italic;
+  font-weight: 600;
+  color: #333;
 }
 
-.tag-list {
+.tags-list {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .tag-item {
   display: flex;
   align-items: center;
-  padding: 6px 8px;
-  background: #f8f9fa;
-  border-radius: 6px;
-  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  gap: 6px;
 }
 
-.tag-color {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
+.current-tag {
+  background-color: #007acc;
+  color: white;
+}
+
+.current-tag:hover {
+  background-color: #0066b3;
+}
+
+.available-tag {
+  background-color: #f1f3f4;
+  color: #333;
+  border: 1px solid #e5e5e5;
+}
+
+.available-tag:hover {
+  background-color: #e9ecef;
+  border-color: #d1d5db;
 }
 
 .tag-name {
-  flex: 1;
   font-size: 14px;
 }
 
-.remove-tag-btn {
+.tag-count {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.remove-tag-button {
   background: none;
   border: none;
-  color: #dc3545;
+  color: inherit;
   cursor: pointer;
-  font-size: 16px;
   padding: 0;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  
-  &:hover {
-    background: #dc3545;
-    color: white;
-  }
-}
-
-.add-tag-input {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.tag-input {
-  flex: 1;
-  padding: 6px 8px;
-  border: 1px solid #e1e5e9;
-  border-radius: 4px;
   font-size: 14px;
-  
-  &:focus {
-    outline: none;
-    border-color: #007acc;
-  }
+  transition: background-color 0.2s;
 }
 
-.add-tag-btn {
-  padding: 6px 12px;
-  background: #007acc;
-  color: white;
-  border: none;
-  border-radius: 4px;
+.remove-tag-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.loading-indicator {
+  text-align: center;
+  padding: 20px;
+  color: #666;
   font-size: 14px;
-  cursor: pointer;
-  
-  &:hover:not(:disabled) {
-    background: #005a9e;
-  }
-  
-  &:disabled {
-    background: #6c757d;
-    cursor: not-allowed;
-  }
 }
 
-.tag-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+.error-message {
+  background-color: #fee;
+  color: #c33;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  margin-top: 12px;
+  border: 1px solid #fcc;
 }
 
-.tag-suggestion {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  background: #f8f9fa;
-  border: 1px solid #e1e5e9;
-  border-radius: 12px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-  
-  &:hover {
-    background: #e9ecef;
-    border-color: #007acc;
-  }
+/* 滚动条样式 */
+.dialog-content::-webkit-scrollbar,
+.suggestions-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dialog-content::-webkit-scrollbar-track,
+.suggestions-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dialog-content::-webkit-scrollbar-thumb,
+.suggestions-list::-webkit-scrollbar-thumb {
+  background-color: #d1d5db;
+  border-radius: 3px;
+}
+
+.dialog-content::-webkit-scrollbar-thumb:hover,
+.suggestions-list::-webkit-scrollbar-thumb:hover {
+  background-color: #9ca3af;
 }
 </style>

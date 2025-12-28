@@ -1,16 +1,39 @@
 <template>
   <div class="note-pane-container">
     <!-- 搜索和新建区域 -->
-    <div class="note-pane-header">
-      <div class="search-container">
+    <div class="note-pane-header" data-tauri-drag-region>
+      <div class="search-container" data-tauri-drag-region="false">
         <input
           v-model="searchQuery"
           type="text"
           placeholder="Search..."
           class="search-input"
           @input="handleSearch"
+          @focus="onSearchFocus"
+          @blur="onSearchBlur"
+          @click="onSearchClick"
+          @keydown="onSearchKeydown"
+          @keyup="handleSearch"
+          data-tauri-drag-region="false"
+          ref="searchInput"
+          tabindex="0"
         />
-        <button class="search-button">
+        <button 
+          v-if="searchQuery" 
+          class="search-button clear-button" 
+          data-tauri-drag-region="false" 
+          @click="clearSearch"
+          title="Clear search"
+        >
+          ✕
+        </button>
+        <button 
+          v-else
+          class="search-button" 
+          data-tauri-drag-region="false" 
+          @click="focusSearch"
+          title="Search"
+        >
           🔍
         </button>
       </div>
@@ -18,6 +41,7 @@
         class="new-note-button"
         @click="handleCreateNote"
         title="Create new note"
+        data-tauri-drag-region="false"
       >
         +
       </button>
@@ -77,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useNotesStore } from '@/stores/notes'
 import { useAppStore } from '@/stores/app'
@@ -91,15 +115,38 @@ const tagsStore = useTagsStore()
 const { sortedNotes, currentNote, loading, error } = storeToRefs(notesStore)
 const { selectedTag } = storeToRefs(tagsStore)
 const searchQuery = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
+let searchTimeout: NodeJS.Timeout | null = null
 
-// 处理搜索
-const handleSearch = async () => {
-  if (searchQuery.value.trim()) {
-    await notesStore.searchNotes(searchQuery.value, selectedTag.value !== 'All Notes' ? selectedTag.value : undefined)
-  } else {
-    // 清空搜索时重新加载当前标签的笔记
-    await reloadCurrentTagNotes()
+// 处理搜索（带防抖）
+const handleSearch = () => {
+  // 清除之前的定时器
+  if (searchTimeout) {
+    clearTimeout(searchTimeout)
   }
+  
+  // 设置新的定时器
+  searchTimeout = setTimeout(async () => {
+    const query = searchQuery.value.trim()
+    if (query) {
+      await notesStore.searchNotes(query, selectedTag.value !== 'All Notes' ? selectedTag.value : undefined)
+    } else {
+      // 清空搜索时重新加载当前标签的笔记
+      await reloadCurrentTagNotes()
+    }
+  }, 300) // 300ms 防抖延迟
+}
+
+// 清空搜索
+const clearSearch = async () => {
+  // 清除防抖定时器
+  if (searchTimeout) {
+    clearTimeout(searchTimeout)
+    searchTimeout = null
+  }
+  
+  searchQuery.value = ''
+  await reloadCurrentTagNotes()
 }
 
 // 重新加载当前标签的笔记
@@ -123,6 +170,28 @@ const reloadCurrentTagNotes = async () => {
   }
 }
 
+// 监听笔记创建事件
+const handleNoteCreated = () => {
+  // 重新加载当前标签的笔记以显示新创建的笔记
+  reloadCurrentTagNotes()
+}
+
+onMounted(() => {
+  // 添加事件监听器
+  window.addEventListener('note-created', handleNoteCreated)
+})
+
+onUnmounted(() => {
+  // 移除事件监听器
+  window.removeEventListener('note-created', handleNoteCreated)
+  
+  // 清理搜索定时器
+  if (searchTimeout) {
+    clearTimeout(searchTimeout)
+    searchTimeout = null
+  }
+})
+
 // 选择笔记
 const selectNote = (note: Note) => {
   notesStore.setCurrentNote(note)
@@ -131,7 +200,7 @@ const selectNote = (note: Note) => {
 // 创建新笔记
 const handleCreateNote = async () => {
   try {
-    const newNote = await notesStore.createNote('Untitled')
+    const newNote = await notesStore.createNote('Untitled', '')
     appStore.setViewMode('edit')
   } catch (err) {
     console.error('Failed to create note:', err)
@@ -178,6 +247,36 @@ const formatDate = (dateString: string) => {
 watch(selectedTag, () => {
   searchQuery.value = ''
 })
+
+// 搜索框焦点处理
+const onSearchFocus = () => {
+  console.log('Search input focused')
+}
+
+const onSearchBlur = () => {
+  console.log('Search input blurred')
+}
+
+const onSearchClick = (event: Event) => {
+  console.log('Search input clicked')
+  event.stopPropagation()
+  if (searchInput.value) {
+    searchInput.value.focus()
+  }
+}
+
+const onSearchKeydown = (event: KeyboardEvent) => {
+  console.log('Search keydown:', event.key)
+  event.stopPropagation()
+}
+
+const focusSearch = () => {
+  console.log('Focus search button clicked')
+  if (searchInput.value) {
+    searchInput.value.focus()
+    searchInput.value.select()
+  }
+}
 </script>
 
 <style scoped>
@@ -194,6 +293,7 @@ watch(selectedTag, () => {
   padding: 12px;
   border-bottom: 1px solid #e5e5e5;
   gap: 8px;
+  pointer-events: auto;
 }
 
 .search-container {
@@ -201,6 +301,8 @@ watch(selectedTag, () => {
   position: relative;
   display: flex;
   align-items: center;
+  pointer-events: auto;
+  z-index: 1;
 }
 
 .search-input {
@@ -211,10 +313,20 @@ watch(selectedTag, () => {
   font-size: 14px;
   outline: none;
   transition: border-color 0.2s;
+  background-color: #ffffff;
+  color: #333;
+  cursor: text;
+  user-select: text;
+  pointer-events: auto;
 }
 
 .search-input:focus {
   border-color: #007acc;
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+}
+
+.search-input:hover {
+  border-color: #ccc;
 }
 
 .search-button {
@@ -226,6 +338,30 @@ watch(selectedTag, () => {
   font-size: 14px;
   padding: 4px;
   color: #666;
+  border-radius: 3px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.search-button:hover {
+  background-color: #f0f0f0;
+}
+
+.clear-button {
+  color: #999;
+  font-size: 16px;
+  font-weight: bold;
+  width: 24px;
+  height: 24px;
+}
+
+.clear-button:hover {
+  background-color: #ff4444;
+  color: white;
 }
 
 .new-note-button {

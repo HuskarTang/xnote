@@ -70,22 +70,23 @@ impl DatabaseManager {
         ).execute(&self.pool).await
             .context("Failed to create note_tags table")?;
         
-        // Create attachments table
+        // Handle attachments table migration
+        self.migrate_attachments_table().await?;
+
+        // Create note-attachment references table
         sqlx::query(
             r#"
-            CREATE TABLE IF NOT EXISTS attachments (
-                id TEXT PRIMARY KEY,
+            CREATE TABLE IF NOT EXISTS note_attachments (
                 note_id TEXT NOT NULL,
-                file_name TEXT NOT NULL,
-                file_path TEXT NOT NULL,
-                file_size INTEGER NOT NULL,
-                mime_type TEXT,
+                attachment_id TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                FOREIGN KEY (note_id) REFERENCES notes (id) ON DELETE CASCADE
+                PRIMARY KEY (note_id, attachment_id),
+                FOREIGN KEY (note_id) REFERENCES notes (id) ON DELETE CASCADE,
+                FOREIGN KEY (attachment_id) REFERENCES attachments (id) ON DELETE CASCADE
             )
             "#
         ).execute(&self.pool).await
-            .context("Failed to create attachments table")?;
+            .context("Failed to create note_attachments table")?;
         
         // Create indexes
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_notes_title ON notes (title)")
@@ -95,6 +96,94 @@ impl DatabaseManager {
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags (name)")
             .execute(&self.pool).await?;
         
+        Ok(())
+    }
+
+    async fn migrate_attachments_table(&mut self) -> Result<()> {
+        // Check if the old attachments table exists
+        let table_info = sqlx::query("PRAGMA table_info(attachments)")
+            .fetch_all(&self.pool)
+            .await;
+
+        match table_info {
+            Ok(rows) if !rows.is_empty() => {
+                // Table exists, check if it has the old schema
+                let has_note_id = rows.iter().any(|row| {
+                    let column_name: String = row.get("name");
+                    column_name == "note_id"
+                });
+
+                if has_note_id {
+                    // Old schema detected, need to migrate
+                    log::info!("Migrating attachments table from old schema");
+                    
+                    // Create new attachments table with temporary name
+                    sqlx::query(
+                        r#"
+                        CREATE TABLE attachments_new (
+                            id TEXT PRIMARY KEY,
+                            file_name TEXT NOT NULL,
+                            file_path TEXT NOT NULL UNIQUE,
+                            file_size INTEGER NOT NULL,
+                            mime_type TEXT,
+                            reference_count INTEGER NOT NULL DEFAULT 0,
+                            created_at TEXT NOT NULL
+                        )
+                        "#
+                    ).execute(&self.pool).await
+                        .context("Failed to create new attachments table")?;
+
+                    // Migrate data from old table to new table
+                    sqlx::query(
+                        r#"
+                        INSERT INTO attachments_new (id, file_name, file_path, file_size, mime_type, reference_count, created_at)
+                        SELECT 
+                            COALESCE(id, lower(hex(randomblob(16)))),
+                            file_name,
+                            file_path,
+                            COALESCE(file_size, 0),
+                            mime_type,
+                            1,
+                            COALESCE(created_at, datetime('now'))
+                        FROM attachments
+                        "#
+                    ).execute(&self.pool).await
+                        .context("Failed to migrate attachment data")?;
+
+                    // Drop old table and rename new table
+                    sqlx::query("DROP TABLE attachments")
+                        .execute(&self.pool).await
+                        .context("Failed to drop old attachments table")?;
+
+                    sqlx::query("ALTER TABLE attachments_new RENAME TO attachments")
+                        .execute(&self.pool).await
+                        .context("Failed to rename new attachments table")?;
+
+                    log::info!("Successfully migrated attachments table");
+                } else {
+                    // Table already has new schema, nothing to do
+                    log::info!("Attachments table already has new schema");
+                }
+            }
+            _ => {
+                // Table doesn't exist, create new one
+                sqlx::query(
+                    r#"
+                    CREATE TABLE attachments (
+                        id TEXT PRIMARY KEY,
+                        file_name TEXT NOT NULL,
+                        file_path TEXT NOT NULL UNIQUE,
+                        file_size INTEGER NOT NULL,
+                        mime_type TEXT,
+                        reference_count INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL
+                    )
+                    "#
+                ).execute(&self.pool).await
+                    .context("Failed to create attachments table")?;
+            }
+        }
+
         Ok(())
     }
     
@@ -147,6 +236,9 @@ impl DatabaseManager {
     
     pub async fn delete_note(&self, id: &str) -> Result<()> {
         let now = Utc::now().to_rfc3339();
+        
+        // Remove all attachment references for this note
+        self.remove_all_note_attachments(id).await?;
         
         sqlx::query("UPDATE notes SET is_deleted = TRUE, modified_at = ?1 WHERE id = ?2")
             .bind(&now)
@@ -279,6 +371,171 @@ impl DatabaseManager {
         Ok(rows.into_iter().map(|row| row.get::<String, _>("name")).collect())
     }
     
+    pub async fn check_has_attachments(&self, note_id: &str) -> Result<bool> {
+        let row = sqlx::query("SELECT COUNT(*) as count FROM note_attachments WHERE note_id = ?1")
+            .bind(note_id)
+            .fetch_one(&self.pool)
+            .await?;
+        
+        let count: i64 = row.get("count");
+        Ok(count > 0)
+    }
+
+    // Attachment operations
+    pub async fn create_attachment(&self, id: &str, file_name: &str, file_path: &str, file_size: i64, mime_type: Option<&str>) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        
+        sqlx::query(
+            "INSERT INTO attachments (id, file_name, file_path, file_size, mime_type, reference_count, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)"
+        )
+        .bind(id)
+        .bind(file_name)
+        .bind(file_path)
+        .bind(file_size)
+        .bind(mime_type)
+        .bind(&now)
+        .execute(&self.pool)
+        .await
+        .context("Failed to create attachment in database")?;
+        
+        Ok(())
+    }
+
+    pub async fn get_attachment_by_path(&self, file_path: &str) -> Result<Option<AttachmentRecord>> {
+        let row = sqlx::query("SELECT * FROM attachments WHERE file_path = ?1")
+            .bind(file_path)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = row {
+            Ok(Some(AttachmentRecord {
+                id: row.get("id"),
+                file_name: row.get("file_name"),
+                file_path: row.get("file_path"),
+                file_size: row.get("file_size"),
+                mime_type: row.get("mime_type"),
+                reference_count: row.get("reference_count"),
+                created_at: row.get("created_at"),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn add_attachment_to_note(&self, note_id: &str, attachment_id: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        
+        // Add reference
+        sqlx::query("INSERT OR IGNORE INTO note_attachments (note_id, attachment_id, created_at) VALUES (?1, ?2, ?3)")
+            .bind(note_id)
+            .bind(attachment_id)
+            .bind(&now)
+            .execute(&self.pool)
+            .await?;
+
+        // Increment reference count
+        sqlx::query("UPDATE attachments SET reference_count = reference_count + 1 WHERE id = ?1")
+            .bind(attachment_id)
+            .execute(&self.pool)
+            .await?;
+        
+        Ok(())
+    }
+
+    pub async fn remove_attachment_from_note(&self, note_id: &str, attachment_id: &str) -> Result<()> {
+        // Remove reference
+        sqlx::query("DELETE FROM note_attachments WHERE note_id = ?1 AND attachment_id = ?2")
+            .bind(note_id)
+            .bind(attachment_id)
+            .execute(&self.pool)
+            .await?;
+
+        // Decrement reference count
+        sqlx::query("UPDATE attachments SET reference_count = reference_count - 1 WHERE id = ?1")
+            .bind(attachment_id)
+            .execute(&self.pool)
+            .await?;
+        
+        Ok(())
+    }
+
+    pub async fn get_note_attachments(&self, note_id: &str) -> Result<Vec<AttachmentRecord>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT a.* FROM attachments a 
+            JOIN note_attachments na ON a.id = na.attachment_id 
+            WHERE na.note_id = ?1 
+            ORDER BY a.created_at DESC
+            "#
+        )
+        .bind(note_id)
+        .fetch_all(&self.pool)
+        .await?;
+        
+        let mut attachments = Vec::new();
+        for row in rows {
+            let attachment = AttachmentRecord {
+                id: row.get("id"),
+                file_name: row.get("file_name"),
+                file_path: row.get("file_path"),
+                file_size: row.get("file_size"),
+                mime_type: row.get("mime_type"),
+                reference_count: row.get("reference_count"),
+                created_at: row.get("created_at"),
+            };
+            attachments.push(attachment);
+        }
+        
+        Ok(attachments)
+    }
+
+    pub async fn get_unreferenced_attachments(&self) -> Result<Vec<AttachmentRecord>> {
+        let rows = sqlx::query("SELECT * FROM attachments WHERE reference_count = 0")
+            .fetch_all(&self.pool)
+            .await?;
+        
+        let mut attachments = Vec::new();
+        for row in rows {
+            let attachment = AttachmentRecord {
+                id: row.get("id"),
+                file_name: row.get("file_name"),
+                file_path: row.get("file_path"),
+                file_size: row.get("file_size"),
+                mime_type: row.get("mime_type"),
+                reference_count: row.get("reference_count"),
+                created_at: row.get("created_at"),
+            };
+            attachments.push(attachment);
+        }
+        
+        Ok(attachments)
+    }
+
+    pub async fn delete_attachment(&self, attachment_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM attachments WHERE id = ?1")
+            .bind(attachment_id)
+            .execute(&self.pool)
+            .await?;
+        
+        Ok(())
+    }
+
+    pub async fn remove_all_note_attachments(&self, note_id: &str) -> Result<()> {
+        // Get all attachment IDs for this note
+        let rows = sqlx::query("SELECT attachment_id FROM note_attachments WHERE note_id = ?1")
+            .bind(note_id)
+            .fetch_all(&self.pool)
+            .await?;
+
+        // Remove all references and decrement counts
+        for row in rows {
+            let attachment_id: String = row.get("attachment_id");
+            self.remove_attachment_from_note(note_id, &attachment_id).await?;
+        }
+
+        Ok(())
+    }
+    
     pub async fn close(self) {
         self.pool.close().await;
     }
@@ -301,6 +558,17 @@ pub struct TagRecord {
     pub name: String,
     pub created_at: String,
     pub note_count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct AttachmentRecord {
+    pub id: String,
+    pub file_name: String,
+    pub file_path: String,
+    pub file_size: i64,
+    pub mime_type: Option<String>,
+    pub reference_count: i32,
+    pub created_at: String,
 }
 
 #[cfg(test)]

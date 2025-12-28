@@ -36,3 +36,37 @@ export interface SearchRequest {
 }
 
 export type ViewMode = 'view' | 'edit' | 'split'
+
+export interface GitSyncConfig {
+  enabled: boolean
+  repository_url: string
+  branch: string
+  username?: string
+  password?: string
+  ssh_key_path?: string
+  auth_type: 'none' | 'basic' | 'ssh'
+}
+
+export interface SyncStatus {
+  is_syncing: boolean
+  last_sync: string | null
+  has_conflicts: boolean
+  local_changes: number
+  remote_changes: number
+}
+
+export interface SyncDiff {
+  file_path: string
+  status: 'added' | 'modified' | 'deleted'
+  local_content?: string
+  remote_content?: string
+  diff_content: string
+}
+
+export interface SyncResult {
+  success: boolean
+  message: string
+  conflicts?: SyncDiff[]
+  changes_pushed: number
+  changes_pulled: number
+}

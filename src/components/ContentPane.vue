@@ -34,7 +34,7 @@
         <div class="content-section" :class="contentSectionClass">
           <!-- 编辑模式 -->
           <div v-if="viewMode === 'edit'" class="edit-pane-container">
-            <EditPane />
+            <EditPane :content="currentNote?.content" :note-id="currentNote?.id" @update:content="handleContentUpdate" @save="handleAutoSave" />
           </div>
 
           <!-- 查看模式 -->
@@ -45,7 +45,7 @@
           <!-- 分屏模式 -->
           <div v-else-if="viewMode === 'split'" class="split-pane-container">
             <div class="edit-section">
-              <EditPane :content="splitContent" @update:content="updateSplitContent" />
+              <EditPane :content="splitContent" :note-id="currentNote?.id" @update:content="updateSplitContent" @save="handleAutoSave" />
             </div>
             <div class="split-divider"></div>
             <div class="view-section">
@@ -102,17 +102,51 @@ const updateSplitContent = (content: string) => {
   splitContent.value = content
 }
 
+// 处理内容更新（用于编辑模式下的实时预览）
+const handleContentUpdate = (content: string) => {
+  // 在编辑模式下，我们可以更新一个临时的内容变量用于预览
+  // 但不立即保存，而是依赖自动保存机制
+}
+
+// 自动保存处理
+const handleAutoSave = async (content: string) => {
+  if (!currentNote.value) {
+    console.log('No current note to save')
+    return
+  }
+  
+  console.log('Auto saving note:', currentNote.value.id, content)
+  
+  try {
+    saveStatus.value = 'Saving...'
+    await notesStore.updateNote(currentNote.value.id, { content })
+    saveStatus.value = 'Saved'
+    console.log('Auto save completed')
+  } catch (err) {
+    saveStatus.value = 'Error saving'
+    console.error('Failed to auto save note:', err)
+  }
+}
+
 // 方法
 const updateTitle = async () => {
   if (!currentNote.value || noteTitle.value === currentNote.value.title) return
   
   try {
     saveStatus.value = 'Saving...'
-    await notesStore.updateNote(currentNote.value.id, { title: noteTitle.value })
+    const updatedNote = await notesStore.updateNote(currentNote.value.id, { title: noteTitle.value })
+    if (updatedNote) {
+      // 如果标题因为冲突被修改了，更新输入框显示
+      noteTitle.value = updatedNote.title
+    }
     saveStatus.value = 'Saved'
   } catch (err) {
     saveStatus.value = 'Error saving'
     console.error('Failed to update title:', err)
+    // 发生错误时，恢复到原来的标题
+    if (currentNote.value) {
+      noteTitle.value = currentNote.value.title
+    }
   }
 }
 
@@ -207,34 +241,39 @@ watch(viewMode, (newMode) => {
 }
 
 .title-section {
-  padding: 16px 24px 0 24px;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 4px 4px 4px 4px;
+  border-bottom: 1px solid #e5e5e5;
+  background-color: #ffffff;
 }
 
 .title-input {
   width: 100%;
   font-size: 24px;
   font-weight: 600;
-  border: none;
+  border: 1px solid transparent;
   outline: none;
   background: transparent;
-  color: #333;
-  padding: 8px 0 16px 0;
-  border-radius: 4px;
+  color: #374151;
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  line-height: 1.3;
+  margin-bottom: 4px;
 }
 
 .title-input:focus {
-  background-color: #f8f8f8;
-  padding-left: 12px;
-  padding-right: 12px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
 .title-display {
   font-size: 24px;
   font-weight: 600;
   margin: 0;
-  padding: 8px 0 16px 0;
-  color: #333;
+  padding: 6px 8px 4px 12px;
+  color: #374151;
   line-height: 1.3;
 }
 
@@ -247,7 +286,7 @@ watch(viewMode, (newMode) => {
 .edit-pane-container,
 .view-pane-container {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .split-pane-container {
@@ -259,7 +298,7 @@ watch(viewMode, (newMode) => {
 .edit-section,
 .view-section {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .split-divider {

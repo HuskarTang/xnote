@@ -42,3 +42,22 @@ pub struct SearchRequest {
     pub query: String,
     pub tag_filter: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Attachment {
+    pub id: String,
+    pub file_name: String,
+    pub file_path: String,
+    pub file_size: i64,
+    pub mime_type: Option<String>,
+    pub created_at: String,
+    pub reference_count: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateAttachmentRequest {
+    pub file_name: String,
+    pub file_path: String,
+    pub file_size: i64,
+    pub mime_type: Option<String>,
+}

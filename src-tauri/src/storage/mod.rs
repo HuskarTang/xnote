@@ -19,15 +19,45 @@ impl FileStorageManager {
     }
     
     pub fn create_note_file(&self, title: &str, content: &str) -> Result<String> {
-        let file_path = self.generate_unique_file_path(title)?;
+        let base_name = self.sanitize_filename(title);
+        let mut attempts = 0;
+        let max_attempts = 1000;
         
-        fs::write(&file_path, content)
-            .context("Failed to write note file")?;
-        
-        Ok(file_path.file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string())
+        loop {
+            let file_name = if attempts == 0 {
+                format!("{}.md", base_name)
+            } else {
+                format!("{}({}).md", base_name, attempts)
+            };
+            
+            let file_path = self.notes_directory.join(&file_name);
+            
+            // Try to create file exclusively (fails if exists)
+            match fs::OpenOptions::new()
+                .create_new(true)  // Fails if file already exists
+                .write(true)
+                .open(&file_path)
+            {
+                Ok(mut file) => {
+                    // Successfully created file, write content
+                    use std::io::Write;
+                    file.write_all(content.as_bytes())
+                        .context("Failed to write note content")?;
+                    return Ok(file_name);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // File exists, try next number
+                    attempts += 1;
+                    if attempts > max_attempts {
+                        return Err(anyhow::anyhow!("Failed to generate unique file name after {} attempts", max_attempts));
+                    }
+                    continue;
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Failed to create file: {}", e));
+                }
+            }
+        }
     }
     
     pub fn read_note_file(&self, file_name: &str) -> Result<String> {
@@ -59,15 +89,40 @@ impl FileStorageManager {
             return Err(anyhow::anyhow!("Note file does not exist: {}", old_file_name));
         }
         
-        let new_file_path = self.generate_unique_file_path(new_title)?;
+        let base_name = self.sanitize_filename(new_title);
+        let mut attempts = 0;
+        let max_attempts = 1000;
         
-        fs::rename(&old_path, &new_file_path)
-            .context("Failed to rename note file")?;
-        
-        Ok(new_file_path.file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string())
+        loop {
+            let new_file_name = if attempts == 0 {
+                format!("{}.md", base_name)
+            } else {
+                format!("{}({}).md", base_name, attempts)
+            };
+            
+            let new_file_path = self.notes_directory.join(&new_file_name);
+            
+            // Skip if trying to rename to the same name
+            if old_path == new_file_path {
+                return Ok(old_file_name.to_string());
+            }
+            
+            // Try to rename to new path (atomic operation, fails if target exists)
+            match fs::rename(&old_path, &new_file_path) {
+                Ok(_) => return Ok(new_file_name),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // Target exists, try next number
+                    attempts += 1;
+                    if attempts > max_attempts {
+                        return Err(anyhow::anyhow!("Failed to generate unique file name after {} attempts", max_attempts));
+                    }
+                    continue;
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Failed to rename file: {}", e));
+                }
+            }
+        }
     }
     
     pub fn delete_note_file(&self, file_name: &str) -> Result<()> {
@@ -180,6 +235,26 @@ impl FileStorageManager {
             
             if counter > 1000 {
                 return Err(anyhow::anyhow!("Failed to generate unique file path"));
+            }
+        }
+    }
+    
+    // New method to create a file atomically and ensure uniqueness
+    fn create_file_atomically(&self, target_path: &Path, content: &str) -> Result<()> {
+        // Create a temporary file first
+        let temp_path = target_path.with_extension("tmp");
+        
+        // Write to temporary file
+        fs::write(&temp_path, content)
+            .context("Failed to write temporary file")?;
+        
+        // Try to rename to target (atomic operation)
+        match fs::rename(&temp_path, target_path) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Clean up temporary file if rename failed
+                let _ = fs::remove_file(&temp_path);
+                Err(anyhow::anyhow!("Failed to create file atomically: {}", e))
             }
         }
     }
