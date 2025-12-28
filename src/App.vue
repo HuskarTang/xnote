@@ -163,7 +163,7 @@ const setupMenuListeners = async () => {
     await listen('show-about', () => {
       ElMessageBox.alert(
         'XNote 是一个超轻量、完全基于文件的 Markdown 笔记应用， 支持通过git仓库进行远程协同<br/>'
-          + 'Version: 0.1.0<br/>'
+          + 'Version: 0.2.0<br/>'
           + 'Contact: tanly6@chinatelecom.cn',
         '关于 XNote',
         {

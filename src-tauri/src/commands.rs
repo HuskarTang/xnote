@@ -799,6 +799,19 @@ pub async fn update_git_sync_config(state: State<'_, Arc<AppState>>, config: cra
 }
 
 #[tauri::command]
+pub async fn update_log_config(state: State<'_, Arc<AppState>>, config: crate::config::LogConfig) -> Result<bool, String> {
+    log_info!("Updating log config: enabled={}, level={}", config.enabled, config.level);
+    let mut config_manager = state.config_manager.lock().unwrap();
+    let mut app_config = config_manager.get_config().clone();
+    app_config.log_config = Some(config);
+    
+    config_manager.update_config(app_config)
+        .map_err(|e| e.to_string())?;
+    
+    Ok(true)
+}
+
+#[tauri::command]
 pub async fn update_theme(state: State<'_, Arc<AppState>>, theme: String) -> Result<bool, String> {
     log_info!("Updating theme to: {}", theme);
     let mut config_manager = state.config_manager.lock().unwrap();

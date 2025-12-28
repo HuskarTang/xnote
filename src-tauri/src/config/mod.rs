@@ -63,7 +63,7 @@ impl Default for AppConfig {
             note_list_width: 320,
             auto_save_interval: 5000,
             log_config: Some(LogConfig {
-                enabled: true,
+                enabled: false,
                 level: "info".to_string(),
                 max_days: 7,
                 console_output: true,

@@ -49,6 +49,13 @@ export interface GitSyncConfig {
   auth_type: 'none' | 'basic' | 'ssh'
 }
 
+export interface LogConfig {
+  enabled: boolean
+  level: string
+  max_days: number
+  console_output: boolean
+}
+
 export interface SyncStatus {
   is_syncing: boolean
   last_sync: string | null

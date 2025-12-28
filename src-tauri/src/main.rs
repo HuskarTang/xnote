@@ -20,15 +20,21 @@ use tauri::{Menu, MenuItem, Submenu, CustomMenuItem, WindowMenuEvent};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logger with console output
-    init_logger();
-    
-    log::info!("Starting XNote application");
-    println!("🚀 XNote application starting...");
-    
     // Initialize configuration
     let config_manager = ConfigManager::new()
         .map_err(|e| format!("Failed to initialize config: {}", e))?;
+    
+    // Initialize logger with config
+    let _log_guard = {
+        let config = config_manager.get_config();
+        if let Some(log_config) = &config.log_config {
+            init_logger(&config.data_directory, log_config)
+        } else {
+            None
+        }
+    };
+    
+    log::info!("Starting XNote application");
     
     // Check if setup is required
     let setup_required = config_manager.requires_setup();
@@ -111,6 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::get_app_config,
             commands::get_git_sync_config,
             commands::update_git_sync_config,
+            commands::update_log_config,
             commands::update_theme,
             commands::get_sync_status,
             commands::get_local_changes,

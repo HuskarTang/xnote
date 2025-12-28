@@ -99,6 +99,44 @@
         </div>
       </div>
       
+      <!-- 日志设置 -->
+      <div class="settings-section">
+        <h3>日志设置</h3>
+        
+        <div class="setting-item">
+          <label class="setting-label">
+            <input 
+              type="checkbox" 
+              v-model="logConfig.enabled"
+            />
+            启用日志记录
+          </label>
+        </div>
+        
+        <div v-if="logConfig.enabled" class="log-config">
+          <div class="setting-item">
+            <label>日志等级</label>
+            <select v-model="logConfig.level">
+              <option value="trace">Trace</option>
+              <option value="debug">Debug</option>
+              <option value="info">Info</option>
+              <option value="warn">Warn</option>
+              <option value="error">Error</option>
+            </select>
+          </div>
+          
+          <div class="setting-item">
+            <label>日志保留时间 (天)</label>
+            <input 
+              type="number" 
+              v-model.number="logConfig.max_days"
+              min="1"
+              max="30"
+            />
+          </div>
+        </div>
+      </div>
+      
       <!-- 其他设置可以在这里添加 -->
     </div>
     
@@ -112,7 +150,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import type { GitSyncConfig } from '@/types'
+import type { GitSyncConfig, LogConfig } from '@/types'
 import { api } from '@/utils/api'
 import { ElMessage } from 'element-plus'
 
@@ -132,18 +170,31 @@ const gitConfig = ref<GitSyncConfig>({
   ssh_key_path: ''
 })
 
+// 日志配置
+const logConfig = ref<LogConfig>({
+  enabled: false,
+  level: 'info',
+  max_days: 7,
+  console_output: true
+})
+
 const isTestingConnection = ref(false)
 const isSaving = ref(false)
 
 // 加载设置
 const loadSettings = async () => {
   try {
-    const config = await api.getGitSyncConfig()
+    const config = await api.getAppConfig()
     if (config) {
-      gitConfig.value = { ...gitConfig.value, ...config }
+      if (config.git_sync) {
+        gitConfig.value = { ...gitConfig.value, ...config.git_sync }
+      }
+      if (config.log_config) {
+        logConfig.value = { ...logConfig.value, ...config.log_config }
+      }
     }
   } catch (error) {
-    console.error('Failed to load git sync config:', error)
+    console.error('Failed to load config:', error)
   }
 }
 
@@ -187,7 +238,10 @@ const testConnection = async () => {
 const saveSettings = async () => {
   isSaving.value = true
   try {
-    await api.updateGitSyncConfig(gitConfig.value)
+    await Promise.all([
+      api.updateGitSyncConfig(gitConfig.value),
+      api.updateLogConfig(logConfig.value)
+    ])
     ElMessage.success('设置保存成功')
     emit('saved')
     emit('close')
@@ -301,7 +355,8 @@ onMounted(() => {
   border-color: #007acc;
 }
 
-.git-config {
+.git-config,
+.log-config {
   margin-left: 20px;
   padding-left: 20px;
   border-left: 2px solid #e5e5e5;

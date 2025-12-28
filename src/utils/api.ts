@@ -127,6 +127,10 @@ export const api = {
     return await invoke('update_git_sync_config', { config })
   },
 
+  async updateLogConfig(config: any): Promise<boolean> {
+    return await invoke('update_log_config', { config })
+  },
+
   async updateTheme(theme: string): Promise<boolean> {
     return await invoke('update_theme', { theme })
   },
