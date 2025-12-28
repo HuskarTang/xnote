@@ -39,6 +39,14 @@ export interface SearchRequest {
 
 export type ViewMode = 'view' | 'edit' | 'split'
 
+export interface EditorState {
+  currentNote: Note | null
+  viewMode: ViewMode
+  isPreviewVisible: boolean
+  isDirty: boolean
+  lastSaved: Date | null
+}
+
 export interface GitSyncConfig {
   enabled: boolean
   repository_url: string

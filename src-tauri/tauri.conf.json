@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "XNote",
-    "version": "0.1.0"
+    "version": "0.2.3"
   },
   "tauri": {
     "allowlist": {
@@ -19,7 +19,9 @@
       },
       "fs": {
         "all": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       },
       "path": {
         "all": true
@@ -29,7 +31,9 @@
       },
       "protocol": {
         "asset": true,
-        "assetScope": ["**"]
+        "assetScope": [
+          "**"
+        ]
       },
       "window": {
         "all": false,
