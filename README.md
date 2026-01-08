@@ -127,7 +127,7 @@ XNote uses a three-pane layout:
 
 ### File Structure
 ```
-mdnote/
+xnote/
 ├── config.json          # Application configuration
 ├── attachments/        # Attached files and images
 └── *.md                # Markdown note files
@@ -135,14 +135,14 @@ mdnote/
 
 ### Configuration
 The application creates a `config.json` file in your system's configuration directory:
-- **Windows**: `%APPDATA%\MDNote\config.json`
-- **macOS**: `~/Library/Application Support/MDNote/config.json`
-- **Linux**: `~/.config/mdnote/config.json`
+- **Windows**: `%APPDATA%\XNote\config.json`
+- **macOS**: `~/Library/Application Support/XNote/config.json`
+- **Linux**: `~/.config/xnote/config.json`
 
 Default configuration:
 ```json
 {
-  "data_directory": "~/Documents/MDNote",
+  "data_directory": "~/Documents/XNote",
   "window_width": 1200,
   "window_height": 800,
   "sidebar_width": 240,
@@ -170,7 +170,6 @@ xnote/
 │   └── tauri.conf.json     # Tauri configuration
 ├── index.html              # HTML entry point
 ├── package.json            # Frontend dependencies
-└── XNote需求.md            # Requirements document (Chinese)
 ```
 
 ### Backend Modules
