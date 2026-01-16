@@ -9,10 +9,35 @@ export const useNotesStore = defineStore('notes', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
+  const collator = new Intl.Collator(undefined, {
+    usage: 'sort',
+    sensitivity: 'base',
+    numeric: true,
+    ignorePunctuation: true,
+  })
+
+  const normalizeTitle = (title?: string) => (title ?? '').normalize('NFKC')
+
   const sortedNotes = computed(() => {
-    return [...notes.value].sort((a, b) => 
-      new Date(b.modified_at).getTime() - new Date(a.modified_at).getTime()
-    )
+    return [...notes.value].sort((a, b) => {
+      const titleCompare = collator.compare(
+        normalizeTitle(a.title),
+        normalizeTitle(b.title)
+      )
+
+      if (titleCompare !== 0) {
+        return titleCompare
+      }
+
+      const modifiedCompare =
+        new Date(b.modified_at).getTime() - new Date(a.modified_at).getTime()
+
+      if (modifiedCompare !== 0) {
+        return modifiedCompare
+      }
+
+      return a.id.localeCompare(b.id)
+    })
   })
 
   async function loadNotes() {
