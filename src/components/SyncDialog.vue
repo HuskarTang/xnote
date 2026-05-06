@@ -152,9 +152,7 @@
 import { ref, computed, onMounted } from 'vue'
 import type {
   GitSyncConfig,
-  SyncStatus,
   SyncDiff,
-  SyncResult,
   GitConflictFile,
   PendingSyncState,
   ResolvedConflictFile
@@ -169,8 +167,11 @@ const emit = defineEmits<{
 
 // 数据
 const gitConfig = ref<GitSyncConfig | null>(null)
-const syncStatus = ref<SyncStatus | null>(null)
-const syncResult = ref<SyncResult | null>(null)
+type SyncToast = {
+  success: boolean
+  message: string
+}
+const syncResult = ref<SyncToast | null>(null)
 
 // 新的数据结构
 const commitHistory = ref<Array<{id: string, title: string, time: string}>>([])
