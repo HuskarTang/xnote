@@ -119,14 +119,18 @@ import { storeToRefs } from 'pinia'
 import { useAppStore } from '@/stores/app'
 import { useNotesStore } from '@/stores/notes'
 import { useTagsStore } from '@/stores/tags'
-import { message } from '@tauri-apps/api/dialog'
-import { invoke } from '@tauri-apps/api/tauri'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { Delete, WarningFilled } from '@element-plus/icons-vue'
 import TagManager from './TagManager.vue'
 import AttachmentManager from './AttachmentManager.vue'
 import Icons from '@/components/Icons.vue'
 import type { Tag } from '@/types'
+
+type ExportFormat = 'markdown' | 'pdf'
+
+const emit = defineEmits<{
+  (event: 'export-note', format: ExportFormat): void
+}>()
 
 const appStore = useAppStore()
 const notesStore = useNotesStore()
@@ -258,37 +262,32 @@ const exportNote = async () => {
   if (!currentNote.value) return
   
   try {
-    // Show directory selection dialog
-    const exportPath = await invoke('show_export_dialog')
-    
-    if (!exportPath) {
-      // User cancelled the dialog
-      return
-    }
-    
-    // Export the note
-    const result = await invoke('export_note', {
-      noteId: currentNote.value.id,
-      exportPath: exportPath
-    })
-    
-    // Show success message
-    await message(result?.toString() || 'Export completed successfully', {
-      title: 'Export Successful',
-      type: 'info'
-    })
-    
-  } catch (err) {
-    console.error('Failed to export note:', err)
-    
-    // Show error message
-    await message(
-      `Failed to export note: ${err}`,
+    const format = await ElMessageBox.confirm(
+      'Choose an export format for this note.',
+      'Export Note',
       {
-        title: 'Export Failed',
-        type: 'error'
+        confirmButtonText: 'PDF',
+        cancelButtonText: 'Markdown',
+        distinguishCancelAndClose: true,
+        type: 'info',
+        center: true,
+        draggable: true
       }
     )
+
+    if (format === 'confirm') {
+      emit('export-note', 'pdf')
+    }
+  } catch (err) {
+    if (err === 'cancel') {
+      emit('export-note', 'markdown')
+      return
+    }
+
+    if (err !== 'close') {
+      console.error('Failed to choose export format:', err)
+      ElMessage.error('导出失败')
+    }
   }
 }
 </script>

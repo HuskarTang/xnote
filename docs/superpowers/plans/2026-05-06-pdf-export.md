@@ -12,10 +12,10 @@
 
 ## File Structure
 
-- Modify `package.json` and `package-lock.json`: add `html2pdf.js`.
+- Modify `package.json` and `package-lock.json`: add `html2pdf.js` and the `sass` preprocessor required for imported SCSS.
 - Create `src/types/html2pdf.d.ts`: provide the minimal TypeScript declaration needed by this app.
 - Create `src/styles/markdown-content.scss`: shared rendered Markdown styles and PDF export layout rules.
-- Modify `src/main.ts`: import global app styles and shared Markdown content styles.
+- Modify `src/main.ts`: import shared Markdown content styles.
 - Modify `src/components/ViewPane.vue`: remove duplicated Markdown styles and rely on the shared stylesheet.
 - Create `src/utils/pdfExport.ts`: filename sanitization, save dialog, image wait logic, DOM setup, PDF generation, and binary write.
 - Modify `src/components/ActionBar.vue`: emit export format requests and keep format selection in the toolbar action.
@@ -34,9 +34,10 @@ Run:
 
 ```bash
 npm install html2pdf.js
+npm install -D sass
 ```
 
-Expected: `package.json` contains `html2pdf.js` under dependencies and `package-lock.json` is updated.
+Expected: `package.json` contains `html2pdf.js` under dependencies, `sass` under devDependencies, and `package-lock.json` is updated.
 
 - [ ] **Step 2: Add a focused type declaration**
 
@@ -304,12 +305,11 @@ Create `src/styles/markdown-content.scss` with the rendered Markdown rules curre
 }
 ```
 
-- [ ] **Step 2: Import global styles in the app entry**
+- [ ] **Step 2: Import shared Markdown styles in the app entry**
 
 Modify `src/main.ts` to include:
 
 ```ts
-import './styles/main.scss'
 import './styles/markdown-content.scss'
 ```
 

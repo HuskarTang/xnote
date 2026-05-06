@@ -1,7 +1,7 @@
 <template>
   <div class="content-pane-container">
     <!-- Action Bar -->
-    <ActionBar />
+    <ActionBar @export-note="handleExportNote" />
 
     <!-- 主要内容区域 -->
     <div class="content-main">
@@ -92,12 +92,18 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
+import { message } from '@tauri-apps/api/dialog'
+import { invoke } from '@tauri-apps/api/tauri'
+import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
 import { useNotesStore } from '@/stores/notes'
 import ActionBar from '@/components/ActionBar.vue'
 import EditPane from '@/components/EditPane.vue'
 import ViewPane from '@/components/ViewPane.vue'
 import Icons from '@/components/Icons.vue'
+import { exportNoteAsPdf } from '@/utils/pdfExport'
+
+type ExportFormat = 'markdown' | 'pdf'
 
 const appStore = useAppStore()
 const notesStore = useNotesStore()
@@ -107,6 +113,7 @@ const { currentNote } = storeToRefs(notesStore)
 
 const noteTitle = ref('')
 const saveStatus = ref('Saved')
+const editContent = ref('')
 const splitContent = ref('')
 
 // 计算属性
@@ -129,6 +136,7 @@ const updateSplitContent = (content: string) => {
 
 // 处理内容更新（用于编辑模式下的实时预览）
 const handleContentUpdate = (content: string) => {
+  editContent.value = content
 }
 
 // 自动保存处理
@@ -168,6 +176,99 @@ const updateTitle = async () => {
   }
 }
 
+const getLatestContent = () => {
+  if (viewMode.value === 'split') {
+    return splitContent.value
+  }
+
+  if (viewMode.value === 'edit') {
+    return editContent.value
+  }
+
+  return currentNote.value?.content || ''
+}
+
+const saveCurrentDraft = async () => {
+  if (!currentNote.value) {
+    return null
+  }
+
+  saveStatus.value = 'Saving...'
+  const updatedNote = await notesStore.updateNote(currentNote.value.id, {
+    title: noteTitle.value,
+    content: getLatestContent()
+  })
+  saveStatus.value = 'Saved'
+
+  if (updatedNote) {
+    noteTitle.value = updatedNote.title
+    editContent.value = updatedNote.content
+    splitContent.value = updatedNote.content
+  }
+
+  return updatedNote
+}
+
+const exportMarkdownNote = async () => {
+  if (!currentNote.value) return
+
+  const exportPath = await invoke('show_export_dialog')
+
+  if (!exportPath) {
+    return
+  }
+
+  const result = await invoke('export_note', {
+    noteId: currentNote.value.id,
+    exportPath
+  })
+
+  await message(result?.toString() || 'Export completed successfully', {
+    title: 'Export Successful',
+    type: 'info'
+  })
+}
+
+const exportPdfNote = async () => {
+  const savedNote = await saveCurrentDraft()
+
+  if (!savedNote) {
+    return
+  }
+
+  const result = await exportNoteAsPdf(savedNote)
+
+  if (!result) {
+    return
+  }
+
+  if (result.missingImages > 0) {
+    ElMessage.warning(`PDF exported, but ${result.missingImages} image(s) may be missing.`)
+  } else {
+    ElMessage.success('PDF exported successfully')
+  }
+}
+
+const handleExportNote = async (format: ExportFormat) => {
+  if (!currentNote.value) return
+
+  try {
+    if (format === 'markdown') {
+      await exportMarkdownNote()
+      return
+    }
+
+    await exportPdfNote()
+  } catch (err) {
+    saveStatus.value = saveStatus.value === 'Saving...' ? 'Error saving' : saveStatus.value
+    console.error('Failed to export note:', err)
+    await message(`Failed to export note: ${err}`, {
+      title: 'Export Failed',
+      type: 'error'
+    })
+  }
+}
+
 const getWordCount = () => {
   const content = viewMode.value === 'split' ? splitContent.value : (currentNote.value?.content || '')
   if (!content) return 0
@@ -187,12 +288,14 @@ const getCharCount = () => {
 watch(currentNote, (newNote) => {
   if (newNote) {
     noteTitle.value = newNote.title
+    editContent.value = newNote.content
     saveStatus.value = 'Saved'
     if (viewMode.value === 'split') {
       splitContent.value = newNote.content
     }
   } else {
     noteTitle.value = ''
+    editContent.value = ''
     splitContent.value = ''
   }
 }, { immediate: true })

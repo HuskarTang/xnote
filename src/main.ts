@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
+import './styles/markdown-content.scss'
 
 // 引入 Element Plus
 import ElementPlus from 'element-plus'
