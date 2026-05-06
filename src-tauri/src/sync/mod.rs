@@ -105,13 +105,14 @@ impl GitSyncManager {
         let data_dir_has_git = self.repo_path.join(".git").exists();
         let pending_transaction = state::read_pending_state(&self.repo_path).unwrap_or(None);
 
-        let probe_dir = tempfile::TempDir::new().context("Failed to create git probe directory")?;
+        let probe_dir = std::env::temp_dir()
+            .join(format!("xnote-git-probe-{}", uuid::Uuid::new_v4()));
         let mut fetch_options = git2::FetchOptions::new();
         fetch_options.remote_callbacks(auth::callbacks(self.config.clone()));
         let mut builder = git2::build::RepoBuilder::new();
         builder.fetch_options(fetch_options);
 
-        match builder.clone(&self.config.repository_url, probe_dir.path()) {
+        let result = match builder.clone(&self.config.repository_url, &probe_dir) {
             Ok(probe_repo) => {
                 let (default_branch, target_branch, target_branch_exists) = {
                     let default_branch = probe_repo
@@ -169,7 +170,9 @@ impl GitSyncManager {
                     message: sanitized_connection_error_message(&self.config.repository_url, &err),
                 })
             }
-        }
+        };
+        let _ = std::fs::remove_dir_all(&probe_dir);
+        result
     }
 
     pub fn setup_git_sync(&self) -> Result<types::GitSyncTransactionResult> {
