@@ -87,3 +87,74 @@ export interface SyncResult {
   changes_pushed: number
   changes_pulled: number
 }
+
+export type GitSyncOutcome = 'success' | 'conflicted' | 'blocked'
+export type SyncTransactionType = 'setup' | 'sync'
+export type SyncPhase =
+  | 'testing_connection'
+  | 'preparing_local_snapshot'
+  | 'fetching_remote'
+  | 'updating_tracking_branch'
+  | 'applying_local_snapshot'
+  | 'conflicted'
+  | 'pushing'
+  | 'completed'
+  | 'aborted'
+
+export type GitConflictStatus =
+  | 'both_modified'
+  | 'local_deleted'
+  | 'remote_deleted'
+  | 'both_added'
+  | 'unsupported'
+
+export interface GitConflictFile {
+  file_path: string
+  status: GitConflictStatus
+  local_content?: string
+  remote_content?: string
+  is_binary: boolean
+  diff_summary?: string
+}
+
+export interface PendingSyncState {
+  transaction_id: string
+  transaction_type: SyncTransactionType
+  phase: SyncPhase
+  target_branch: string
+  temporary_branch: string
+  remote_url: string
+  pre_transaction_head?: string
+  conflicts: GitConflictFile[]
+}
+
+export interface GitConnectionTestResult {
+  success: boolean
+  repository_reachable: boolean
+  auth_success: boolean
+  default_branch?: string
+  target_branch: string
+  target_branch_exists: boolean
+  will_create_branch: boolean
+  data_dir_has_git: boolean
+  data_dir_has_uncommitted_content: boolean
+  remote_mismatch: boolean
+  pending_transaction?: PendingSyncState
+  actions: string[]
+  message: string
+}
+
+export interface GitSyncTransactionResult {
+  outcome: GitSyncOutcome
+  message: string
+  target_branch?: string
+  temporary_branch?: string
+  pushed: boolean
+  conflicts: GitConflictFile[]
+  pending?: PendingSyncState
+}
+
+export interface ResolvedConflictFile {
+  file_path: string
+  final_content?: string
+}
