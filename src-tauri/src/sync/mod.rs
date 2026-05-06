@@ -105,28 +105,32 @@ impl GitSyncManager {
         let data_dir_has_git = self.repo_path.join(".git").exists();
         let pending_transaction = state::read_pending_state(&self.repo_path).unwrap_or(None);
 
-        let probe_dir = std::env::temp_dir().join(format!("xnote-git-probe-{}", uuid::Uuid::new_v4()));
+        let probe_dir = tempfile::TempDir::new().context("Failed to create git probe directory")?;
         let mut fetch_options = git2::FetchOptions::new();
         fetch_options.remote_callbacks(auth::callbacks(self.config.clone()));
         let mut builder = git2::build::RepoBuilder::new();
         builder.fetch_options(fetch_options);
 
-        match builder.clone(&self.config.repository_url, &probe_dir) {
+        match builder.clone(&self.config.repository_url, probe_dir.path()) {
             Ok(probe_repo) => {
-                let default_branch = probe_repo
-                    .head()
-                    .ok()
-                    .and_then(|head| head.shorthand().map(|name| name.to_string()));
-                let target_branch = if self.config.branch.trim().is_empty() {
-                    default_branch.clone().unwrap_or_else(|| "main".to_string())
-                } else {
-                    self.config.branch.clone()
+                let (default_branch, target_branch, target_branch_exists) = {
+                    let default_branch = probe_repo
+                        .head()
+                        .ok()
+                        .and_then(|head| head.shorthand().map(|name| name.to_string()));
+                    let target_branch = if self.config.branch.trim().is_empty() {
+                        default_branch.clone().unwrap_or_else(|| "main".to_string())
+                    } else {
+                        self.config.branch.clone()
+                    };
+                    let target_branch_exists = probe_repo
+                        .find_branch(&target_branch, git2::BranchType::Local)
+                        .or_else(|_| probe_repo.find_branch(&format!("origin/{}", target_branch), git2::BranchType::Remote))
+                        .is_ok();
+                    (default_branch, target_branch, target_branch_exists)
                 };
-                let target_branch_exists = probe_repo
-                    .find_branch(&target_branch, git2::BranchType::Local)
-                    .or_else(|_| probe_repo.find_branch(&format!("origin/{}", target_branch), git2::BranchType::Remote))
-                    .is_ok();
-                let _ = std::fs::remove_dir_all(&probe_dir);
+                drop(probe_repo);
+
                 Ok(types::GitConnectionTestResult {
                     success: true,
                     repository_reachable: true,
@@ -148,10 +152,10 @@ impl GitSyncManager {
                 })
             }
             Err(err) => {
-                let _ = std::fs::remove_dir_all(&probe_dir);
+                let repository_reachable = is_auth_failure(&err);
                 Ok(types::GitConnectionTestResult {
                     success: false,
-                    repository_reachable: false,
+                    repository_reachable,
                     auth_success: false,
                     default_branch: None,
                     target_branch: self.config.branch.clone(),
@@ -162,7 +166,7 @@ impl GitSyncManager {
                     remote_mismatch: false,
                     pending_transaction,
                     actions: vec![],
-                    message: format!("Connection test failed: {}", err),
+                    message: sanitized_connection_error_message(&self.config.repository_url, &err),
                 })
             }
         }
@@ -1377,4 +1381,27 @@ impl GitSyncManager {
         println!("✅ Three-way merge completed");
         Ok(())
     }
+}
+
+fn is_auth_failure(err: &git2::Error) -> bool {
+    err.code() == git2::ErrorCode::Auth
+}
+
+fn sanitized_connection_error_message(repository_url: &str, err: &git2::Error) -> String {
+    let mut sanitized = err.to_string();
+    let safe_label = auth::safe_remote_label(repository_url);
+
+    if safe_label != repository_url {
+        sanitized = sanitized.replace(repository_url, &safe_label);
+
+        if let Some(protocol_end) = repository_url.find("://") {
+            let rest = &repository_url[protocol_end + 3..];
+            if let Some(at_index) = rest.find('@') {
+                let credential_prefix = &rest[..at_index + 1];
+                sanitized = sanitized.replace(credential_prefix, "");
+            }
+        }
+    }
+
+    format!("Connection test failed: {}", sanitized)
 }

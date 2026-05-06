@@ -66,3 +66,38 @@ fn connection_test_reports_missing_url_without_network() {
     assert!(!result.repository_reachable);
     assert_eq!(result.message, "Git repository URL is required");
 }
+
+#[test]
+fn connection_test_reports_missing_ssh_key_without_network() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let missing_key = dir.path().join("missing-key");
+    let config = crate::config::GitSyncConfig {
+        enabled: true,
+        repository_url: "git@example.com:owner/repo.git".to_string(),
+        branch: "main".to_string(),
+        username: None,
+        password: None,
+        ssh_key_path: Some(missing_key.to_string_lossy().to_string()),
+        auth_type: "ssh".to_string(),
+    };
+    let manager = crate::sync::GitSyncManager::new(dir.path().to_path_buf(), config);
+    let result = manager.test_connection().unwrap();
+
+    assert!(!result.success);
+    assert!(!result.repository_reachable);
+    assert!(!result.auth_success);
+    assert!(result.message.contains("SSH key file does not exist"));
+}
+
+#[test]
+fn sanitized_connection_error_does_not_leak_url_credentials() {
+    let repository_url = "https://user:secret@example.invalid/repo.git";
+    let err = git2::Error::from_str(
+        "failed to resolve address for https://user:secret@example.invalid/repo.git",
+    );
+    let message = super::sanitized_connection_error_message(repository_url, &err);
+
+    assert!(!message.contains("secret"));
+    assert!(!message.contains("user:secret"));
+    assert!(message.contains("https://example.invalid/repo.git"));
+}
