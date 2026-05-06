@@ -189,6 +189,39 @@ fn setup_git_sync_creates_configured_branch_when_remote_missing() {
 }
 
 #[test]
+fn fetch_branch_updates_remote_tracking_ref() {
+    let local = init_repo_dir();
+    let remote_work = tempfile::TempDir::new().unwrap();
+    let remote = tempfile::TempDir::new().unwrap();
+    git2::Repository::init_bare(remote.path()).unwrap();
+
+    let remote_repo =
+        git2::Repository::clone(remote.path().to_str().unwrap(), remote_work.path()).unwrap();
+    write_file(remote_work.path(), "note.md", "remote\n");
+    commit_all(&remote_repo, "remote note");
+    remote_repo
+        .find_remote("origin")
+        .unwrap()
+        .push(&["refs/heads/master:refs/heads/main"], None)
+        .unwrap();
+
+    let local_repo = git2::Repository::open(local.path()).unwrap();
+    local_repo
+        .remote("origin", remote.path().to_str().unwrap())
+        .unwrap();
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(remote.path(), "main"),
+    );
+
+    manager.fetch_branch(&local_repo, "main").unwrap();
+
+    assert!(local_repo
+        .find_reference("refs/remotes/origin/main")
+        .is_ok());
+}
+
+#[test]
 fn setup_git_sync_detects_same_file_conflict() {
     let local = tempfile::TempDir::new().unwrap();
     let remote_work = tempfile::TempDir::new().unwrap();

@@ -351,7 +351,11 @@ impl GitSyncManager {
         let mut remote = repo.find_remote("origin").context("Failed to find origin remote")?;
         let mut fetch_options = git2::FetchOptions::new();
         fetch_options.remote_callbacks(auth::callbacks(self.config.clone()));
-        remote.fetch(&[branch_name], Some(&mut fetch_options), None)
+        let refspec = format!(
+            "refs/heads/{0}:refs/remotes/origin/{0}",
+            branch_name
+        );
+        remote.fetch(&[&refspec], Some(&mut fetch_options), None)
             .with_context(|| format!("Failed to fetch branch {}", branch_name))
     }
 
