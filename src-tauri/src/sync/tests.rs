@@ -101,3 +101,123 @@ fn sanitized_connection_error_does_not_leak_url_credentials() {
     assert!(!message.contains("user:secret"));
     assert!(message.contains("https://example.invalid/repo.git"));
 }
+
+fn write_file(dir: &std::path::Path, name: &str, content: &str) {
+    std::fs::write(dir.join(name), content).unwrap();
+}
+
+fn commit_all(repo: &git2::Repository, message: &str) -> git2::Oid {
+    let sig = git2::Signature::now("Test User", "test@example.invalid").unwrap();
+    let mut index = repo.index().unwrap();
+    index
+        .add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
+        .unwrap();
+    index.write().unwrap();
+    let tree_id = index.write_tree().unwrap();
+    let tree = repo.find_tree(tree_id).unwrap();
+    let parents = match repo.head().ok().and_then(|head| head.peel_to_commit().ok()) {
+        Some(parent) => vec![parent],
+        None => vec![],
+    };
+    let parent_refs = parents.iter().collect::<Vec<_>>();
+    repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parent_refs)
+        .unwrap()
+}
+
+fn basic_config(remote: &std::path::Path, branch: &str) -> crate::config::GitSyncConfig {
+    crate::config::GitSyncConfig {
+        enabled: true,
+        repository_url: remote.to_string_lossy().to_string(),
+        branch: branch.to_string(),
+        username: None,
+        password: None,
+        ssh_key_path: None,
+        auth_type: "none".to_string(),
+    }
+}
+
+#[test]
+fn setup_git_sync_handles_empty_data_directory() {
+    let local = tempfile::TempDir::new().unwrap();
+    let remote = tempfile::TempDir::new().unwrap();
+    git2::Repository::init_bare(remote.path()).unwrap();
+
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(remote.path(), "main"),
+    );
+    let result = manager.setup_git_sync().unwrap();
+
+    assert_eq!(result.outcome, crate::sync::types::GitSyncOutcome::Success);
+    assert!(local.path().join(".git").exists());
+}
+
+#[test]
+fn setup_git_sync_pushes_existing_local_notes_to_empty_remote() {
+    let local = tempfile::TempDir::new().unwrap();
+    let remote = tempfile::TempDir::new().unwrap();
+    git2::Repository::init_bare(remote.path()).unwrap();
+    write_file(local.path(), "local.md", "# Local\n");
+
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(remote.path(), "main"),
+    );
+    let result = manager.setup_git_sync().unwrap();
+
+    assert_eq!(result.outcome, crate::sync::types::GitSyncOutcome::Success);
+    assert!(local.path().join(".git").exists());
+    assert!(local.path().join("local.md").exists());
+}
+
+#[test]
+fn setup_git_sync_creates_configured_branch_when_remote_missing() {
+    let local = tempfile::TempDir::new().unwrap();
+    let remote = tempfile::TempDir::new().unwrap();
+    git2::Repository::init_bare(remote.path()).unwrap();
+    write_file(local.path(), "topic.md", "# Topic\n");
+
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(remote.path(), "topic"),
+    );
+    let result = manager.setup_git_sync().unwrap();
+    let remote_repo = git2::Repository::open_bare(remote.path()).unwrap();
+
+    assert_eq!(result.outcome, crate::sync::types::GitSyncOutcome::Success);
+    assert!(remote_repo.find_reference("refs/heads/topic").is_ok());
+}
+
+#[test]
+fn setup_git_sync_detects_same_file_conflict() {
+    let local = tempfile::TempDir::new().unwrap();
+    let remote_work = tempfile::TempDir::new().unwrap();
+    let remote = tempfile::TempDir::new().unwrap();
+    git2::Repository::init_bare(remote.path()).unwrap();
+
+    let remote_repo =
+        git2::Repository::clone(remote.path().to_str().unwrap(), remote_work.path()).unwrap();
+    write_file(remote_work.path(), "note.md", "remote\n");
+    commit_all(&remote_repo, "remote note");
+    remote_repo
+        .find_remote("origin")
+        .unwrap()
+        .push(&["refs/heads/master:refs/heads/main"], None)
+        .unwrap();
+
+    write_file(local.path(), "note.md", "local\n");
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(remote.path(), "main"),
+    );
+    let result = manager.setup_git_sync().unwrap();
+
+    assert_eq!(
+        result.outcome,
+        crate::sync::types::GitSyncOutcome::Conflicted
+    );
+    assert_eq!(result.conflicts[0].file_path, "note.md");
+    assert!(crate::sync::state::read_pending_state(local.path())
+        .unwrap()
+        .is_some());
+}
