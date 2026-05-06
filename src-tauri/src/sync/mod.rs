@@ -57,6 +57,117 @@ impl GitSyncManager {
         Self { repo_path, config }
     }
 
+    pub fn test_connection(&self) -> Result<types::GitConnectionTestResult> {
+        if self.config.repository_url.trim().is_empty() {
+            return Ok(types::GitConnectionTestResult {
+                success: false,
+                repository_reachable: false,
+                auth_success: false,
+                default_branch: None,
+                target_branch: self.config.branch.clone(),
+                target_branch_exists: false,
+                will_create_branch: false,
+                data_dir_has_git: self.repo_path.join(".git").exists(),
+                data_dir_has_uncommitted_content: false,
+                remote_mismatch: false,
+                pending_transaction: state::read_pending_state(&self.repo_path).unwrap_or(None),
+                actions: vec![],
+                message: "Git repository URL is required".to_string(),
+            });
+        }
+
+        if self.config.auth_type == "ssh" {
+            if let Some(path) = &self.config.ssh_key_path {
+                if !path.is_empty() && !auth::expand_home(path).exists() {
+                    return Ok(types::GitConnectionTestResult {
+                        success: false,
+                        repository_reachable: false,
+                        auth_success: false,
+                        default_branch: None,
+                        target_branch: self.config.branch.clone(),
+                        target_branch_exists: false,
+                        will_create_branch: false,
+                        data_dir_has_git: self.repo_path.join(".git").exists(),
+                        data_dir_has_uncommitted_content: false,
+                        remote_mismatch: false,
+                        pending_transaction: state::read_pending_state(&self.repo_path).unwrap_or(None),
+                        actions: vec![],
+                        message: format!("SSH key file does not exist: {}", path),
+                    });
+                }
+            }
+        }
+
+        self.test_connection_with_remote()
+    }
+
+    fn test_connection_with_remote(&self) -> Result<types::GitConnectionTestResult> {
+        let data_dir_has_git = self.repo_path.join(".git").exists();
+        let pending_transaction = state::read_pending_state(&self.repo_path).unwrap_or(None);
+
+        let probe_dir = std::env::temp_dir().join(format!("xnote-git-probe-{}", uuid::Uuid::new_v4()));
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.remote_callbacks(auth::callbacks(self.config.clone()));
+        let mut builder = git2::build::RepoBuilder::new();
+        builder.fetch_options(fetch_options);
+
+        match builder.clone(&self.config.repository_url, &probe_dir) {
+            Ok(probe_repo) => {
+                let default_branch = probe_repo
+                    .head()
+                    .ok()
+                    .and_then(|head| head.shorthand().map(|name| name.to_string()));
+                let target_branch = if self.config.branch.trim().is_empty() {
+                    default_branch.clone().unwrap_or_else(|| "main".to_string())
+                } else {
+                    self.config.branch.clone()
+                };
+                let target_branch_exists = probe_repo
+                    .find_branch(&target_branch, git2::BranchType::Local)
+                    .or_else(|_| probe_repo.find_branch(&format!("origin/{}", target_branch), git2::BranchType::Remote))
+                    .is_ok();
+                let _ = std::fs::remove_dir_all(&probe_dir);
+                Ok(types::GitConnectionTestResult {
+                    success: true,
+                    repository_reachable: true,
+                    auth_success: true,
+                    default_branch,
+                    target_branch: target_branch.clone(),
+                    target_branch_exists,
+                    will_create_branch: !target_branch_exists,
+                    data_dir_has_git,
+                    data_dir_has_uncommitted_content: false,
+                    remote_mismatch: false,
+                    pending_transaction,
+                    actions: if data_dir_has_git {
+                        vec![types::GitSetupAction::UseExistingRepository]
+                    } else {
+                        vec![types::GitSetupAction::InitializeRepository]
+                    },
+                    message: "Connection test succeeded".to_string(),
+                })
+            }
+            Err(err) => {
+                let _ = std::fs::remove_dir_all(&probe_dir);
+                Ok(types::GitConnectionTestResult {
+                    success: false,
+                    repository_reachable: false,
+                    auth_success: false,
+                    default_branch: None,
+                    target_branch: self.config.branch.clone(),
+                    target_branch_exists: false,
+                    will_create_branch: false,
+                    data_dir_has_git,
+                    data_dir_has_uncommitted_content: false,
+                    remote_mismatch: false,
+                    pending_transaction,
+                    actions: vec![],
+                    message: format!("Connection test failed: {}", err),
+                })
+            }
+        }
+    }
+
     pub fn get_sync_status(&self) -> Result<SyncStatus> {
         let repo = Repository::open(&self.repo_path)
             .context("Failed to open repository")?;

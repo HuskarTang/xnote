@@ -40,3 +40,29 @@ fn pending_state_round_trips_inside_git_dir() {
         .unwrap()
         .is_none());
 }
+
+#[test]
+fn safe_remote_label_masks_token_in_url() {
+    let label = crate::sync::auth::safe_remote_label("https://user:token@example.com/repo.git");
+    assert_eq!(label, "https://example.com/repo.git");
+}
+
+#[test]
+fn connection_test_reports_missing_url_without_network() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config = crate::config::GitSyncConfig {
+        enabled: true,
+        repository_url: "".to_string(),
+        branch: "".to_string(),
+        username: None,
+        password: None,
+        ssh_key_path: None,
+        auth_type: "none".to_string(),
+    };
+    let manager = crate::sync::GitSyncManager::new(dir.path().to_path_buf(), config);
+    let result = manager.test_connection().unwrap();
+
+    assert!(!result.success);
+    assert!(!result.repository_reachable);
+    assert_eq!(result.message, "Git repository URL is required");
+}
