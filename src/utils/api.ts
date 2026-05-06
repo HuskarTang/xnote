@@ -1,5 +1,16 @@
 import { invoke } from '@tauri-apps/api/tauri'
-import type { Note, Tag, CreateNoteRequest, UpdateNoteRequest, SearchRequest } from '@/types'
+import type {
+  Note,
+  Tag,
+  CreateNoteRequest,
+  UpdateNoteRequest,
+  SearchRequest,
+  GitSyncConfig,
+  GitConnectionTestResult,
+  GitSyncTransactionResult,
+  PendingSyncState,
+  ResolvedConflictFile
+} from '@/types'
 
 export const api = {
   // Notes
@@ -143,7 +154,27 @@ export const api = {
     return await invoke('get_local_changes')
   },
 
-  async performSync(): Promise<any> {
+  async testGitConnection(config: GitSyncConfig): Promise<GitConnectionTestResult> {
+    return await invoke('test_git_connection', { config })
+  },
+
+  async setupGitSync(config: GitSyncConfig): Promise<GitSyncTransactionResult> {
+    return await invoke('setup_git_sync', { config })
+  },
+
+  async getPendingGitSync(): Promise<PendingSyncState | null> {
+    return await invoke('get_pending_git_sync')
+  },
+
+  async continueGitSync(resolvedFiles: ResolvedConflictFile[]): Promise<GitSyncTransactionResult> {
+    return await invoke('continue_git_sync', { resolvedFiles })
+  },
+
+  async abortGitSync(): Promise<GitSyncTransactionResult> {
+    return await invoke('abort_git_sync')
+  },
+
+  async performSync(): Promise<GitSyncTransactionResult> {
     return await invoke('perform_sync')
   },
 

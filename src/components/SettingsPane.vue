@@ -139,6 +139,14 @@
       
       <!-- 其他设置可以在这里添加 -->
     </div>
+
+    <div v-if="isResolvingSetupConflict" class="settings-conflicts">
+      <GitConflictResolver
+        :files="setupConflicts"
+        @continue="continueSetupConflict"
+        @abort="abortSetupConflict"
+      />
+    </div>
     
     <div class="settings-footer">
       <button class="save-btn" @click="saveSettings" :disabled="isSaving">
@@ -150,9 +158,16 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import type { GitSyncConfig, LogConfig } from '@/types'
+import type {
+  GitSyncConfig,
+  LogConfig,
+  GitConnectionTestResult,
+  GitConflictFile,
+  ResolvedConflictFile
+} from '@/types'
 import { api } from '@/utils/api'
 import { ElMessage } from 'element-plus'
+import GitConflictResolver from '@/components/GitConflictResolver.vue'
 
 const emit = defineEmits<{
   close: []
@@ -180,6 +195,9 @@ const logConfig = ref<LogConfig>({
 
 const isTestingConnection = ref(false)
 const isSaving = ref(false)
+const connectionResult = ref<GitConnectionTestResult | null>(null)
+const setupConflicts = ref<GitConflictFile[]>([])
+const isResolvingSetupConflict = ref(false)
 
 // 加载设置
 const loadSettings = async () => {
@@ -224,8 +242,15 @@ const testConnection = async () => {
   
   isTestingConnection.value = true
   try {
-    // 暂时简化测试连接逻辑
-    ElMessage.info('连接测试功能开发中...')
+    connectionResult.value = await api.testGitConnection(gitConfig.value)
+    if (connectionResult.value.success) {
+      const branchText = connectionResult.value.will_create_branch
+        ? `将创建远端分支 ${connectionResult.value.target_branch}`
+        : `将跟随分支 ${connectionResult.value.target_branch}`
+      ElMessage.success(`连接成功，${branchText}`)
+    } else {
+      ElMessage.error(connectionResult.value.message)
+    }
   } catch (error) {
     console.error('Connection test failed:', error)
     ElMessage.error('连接测试失败，请检查配置')
@@ -238,10 +263,23 @@ const testConnection = async () => {
 const saveSettings = async () => {
   isSaving.value = true
   try {
-    await Promise.all([
-      api.updateGitSyncConfig(gitConfig.value),
-      api.updateLogConfig(logConfig.value)
-    ])
+    if (gitConfig.value.enabled) {
+      const setupResult = await api.setupGitSync(gitConfig.value)
+      if (setupResult.outcome === 'conflicted') {
+        setupConflicts.value = setupResult.conflicts
+        isResolvingSetupConflict.value = true
+        ElMessage.warning('Git同步初始化存在冲突，请处理后继续')
+        return
+      }
+      if (setupResult.outcome === 'blocked') {
+        ElMessage.error(setupResult.message)
+        return
+      }
+    } else {
+      await api.updateGitSyncConfig(gitConfig.value)
+    }
+
+    await api.updateLogConfig(logConfig.value)
     ElMessage.success('设置保存成功')
     emit('saved')
     emit('close')
@@ -250,6 +288,37 @@ const saveSettings = async () => {
     ElMessage.error('保存设置失败，请重试')
   } finally {
     isSaving.value = false
+  }
+}
+
+const continueSetupConflict = async (files: ResolvedConflictFile[]) => {
+  try {
+    const result = await api.continueGitSync(files)
+    if (result.outcome === 'success') {
+      isResolvingSetupConflict.value = false
+      setupConflicts.value = []
+      await api.updateLogConfig(logConfig.value)
+      ElMessage.success('Git同步已启用')
+      emit('saved')
+      emit('close')
+    } else {
+      ElMessage.error(result.message)
+    }
+  } catch (error) {
+    console.error('Failed to continue setup conflict:', error)
+    ElMessage.error('继续Git同步初始化失败')
+  }
+}
+
+const abortSetupConflict = async () => {
+  try {
+    await api.abortGitSync()
+    isResolvingSetupConflict.value = false
+    setupConflicts.value = []
+    ElMessage.info('已中止Git同步初始化')
+  } catch (error) {
+    console.error('Failed to abort setup conflict:', error)
+    ElMessage.error('中止Git同步初始化失败')
   }
 }
 
@@ -308,6 +377,12 @@ onMounted(() => {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+}
+
+.settings-conflicts {
+  max-height: 65vh;
+  overflow: auto;
+  padding: 0 20px 20px;
 }
 
 .settings-section {

@@ -50,8 +50,8 @@
                   <el-button 
                     type="primary"
                     size="small"
-                    @click="syncFromRemote"
-                    :disabled="isSyncing || remoteChanges.length === 0"
+                    @click="runManualSync"
+                    :disabled="!canSync"
                     :loading="isSyncing"
                   >
                     同步
@@ -86,8 +86,8 @@
                   <el-button 
                     type="primary"
                     size="small"
-                    @click="commitLocalChanges"
-                    :disabled="isSyncing || localChanges.length === 0 || remoteChanges.length > 0"
+                    @click="runManualSync"
+                    :disabled="!canSync"
                     :loading="isSyncing"
                   >
                     同步
@@ -127,24 +127,14 @@
           </div>
         </div>
 
-        <!-- 提交信息输入对话框 -->
-        <div v-if="showCommitDialog" class="commit-dialog-overlay">
-          <div class="commit-dialog">
-            <h4>输入变更说明</h4>
-            <textarea 
-              v-model="commitMessage"
-              placeholder="请描述本次变更内容..."
-              rows="4"
-              ref="commitInput"
-            ></textarea>
-            <div class="commit-actions">
-              <button @click="confirmCommit" class="confirm-btn" :disabled="!commitMessage.trim()">
-                确认提交
-              </button>
-              <button @click="cancelCommit" class="cancel-btn">
-                取消
-              </button>
-            </div>
+        <!-- 冲突解析覆盖层 -->
+        <div v-if="isResolvingConflict" class="commit-dialog-overlay">
+          <div class="conflict-dialog">
+            <GitConflictResolver
+              :files="syncConflicts"
+              @continue="continueSyncConflict"
+              @abort="abortSyncConflict"
+            />
           </div>
         </div>
 
@@ -159,10 +149,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
-import type { GitSyncConfig, SyncStatus, SyncDiff, SyncResult } from '@/types'
+import { ref, computed, onMounted } from 'vue'
+import type {
+  GitSyncConfig,
+  SyncDiff,
+  GitConflictFile,
+  PendingSyncState,
+  ResolvedConflictFile
+} from '@/types'
 import { api } from '@/utils/api'
 import Icons from '@/components/Icons.vue'
+import GitConflictResolver from '@/components/GitConflictResolver.vue'
 
 const emit = defineEmits<{
   close: []
@@ -170,8 +167,11 @@ const emit = defineEmits<{
 
 // 数据
 const gitConfig = ref<GitSyncConfig | null>(null)
-const syncStatus = ref<SyncStatus | null>(null)
-const syncResult = ref<SyncResult | null>(null)
+type SyncToast = {
+  success: boolean
+  message: string
+}
+const syncResult = ref<SyncToast | null>(null)
 
 // 新的数据结构
 const commitHistory = ref<Array<{id: string, title: string, time: string}>>([])
@@ -182,8 +182,9 @@ const localChanges = ref<SyncDiff[]>([])
 const isSyncing = ref(false)
 const syncProgress = ref(0)
 const syncMessage = ref('')
-const showCommitDialog = ref(false)
-const commitMessage = ref('')
+const pendingSync = ref<PendingSyncState | null>(null)
+const syncConflicts = ref<GitConflictFile[]>([])
+const isResolvingConflict = ref(false)
 
 // 计算属性
 const canSync = computed(() => {
@@ -235,6 +236,12 @@ const loadData = async () => {
     gitConfig.value = config
     
     if (config?.enabled) {
+      pendingSync.value = await api.getPendingGitSync()
+      if (pendingSync.value?.conflicts?.length) {
+        syncConflicts.value = pendingSync.value.conflicts
+        isResolvingConflict.value = true
+      }
+
       // 并行加载所有数据
       await Promise.all([
         loadCommitHistory(),
@@ -299,150 +306,61 @@ const loadLocalChanges = async () => {
   }
 }
 
-// 远端同步：stash -> pull -> stash pop
-const syncFromRemote = async () => {
-  if (isSyncing.value || remoteChanges.value.length === 0) return
+const runManualSync = async () => {
+  if (isSyncing.value) return
   
   isSyncing.value = true
-  syncProgress.value = 0
-  syncMessage.value = '正在暂存本地变更...'
+  syncProgress.value = 10
+  syncMessage.value = '正在执行Git同步...'
   
   try {
-    // 1. Stash 本地变更
-    if (localChanges.value.length > 0) {
-      syncProgress.value = 20
-      await api.stashChanges()
-      syncMessage.value = '本地变更已暂存'
+    const result = await api.performSync()
+    if (result.outcome === 'conflicted') {
+      syncConflicts.value = result.conflicts
+      pendingSync.value = result.pending || null
+      isResolvingConflict.value = true
+      syncResult.value = { success: false, message: result.message }
+      return
     }
-    
-    // 2. 拉取远端变更
-    syncProgress.value = 50
-    syncMessage.value = '正在拉取远端变更...'
-    await api.pullFromRemote()
-    
-    // 3. 恢复本地变更
-    if (localChanges.value.length > 0) {
-      syncProgress.value = 80
-      syncMessage.value = '正在恢复本地变更...'
-      await api.stashPop()
+    if (result.outcome === 'blocked') {
+      syncResult.value = { success: false, message: result.message }
+      return
     }
     
     syncProgress.value = 100
-    syncMessage.value = '远端同步完成'
-    
-    syncResult.value = {
-      success: true,
-      message: '远端变更同步成功'
-    }
-    
-    // 刷新数据
+    syncMessage.value = '同步完成'
+    syncResult.value = { success: true, message: result.message }
     await loadData()
-    
   } catch (error) {
-    console.error('Remote sync failed:', error)
-    syncResult.value = {
-      success: false,
-      message: `远端同步失败: ${error}`
-    }
+    syncResult.value = { success: false, message: `同步失败: ${error}` }
   } finally {
     isSyncing.value = false
-    // 3秒后隐藏结果提示
     setTimeout(() => {
       syncResult.value = null
     }, 3000)
   }
 }
 
-// 本地变更提交：检查远端 -> 输入说明 -> 提交 -> pull rebase -> push
-const commitLocalChanges = async () => {
-  // 检查是否有远端变更
-  if (remoteChanges.value.length > 0) {
-    syncResult.value = {
-      success: false,
-      message: '请先同步远端变更'
-    }
-    setTimeout(() => {
-      syncResult.value = null
-    }, 3000)
-    return
-  }
-  
-  if (localChanges.value.length === 0) return
-  
-  // 显示提交信息输入对话框
-  showCommitDialog.value = true
-  commitMessage.value = ''
-  
-  // 聚焦到输入框
-  await nextTick()
-  const input = document.querySelector('.commit-dialog textarea') as HTMLTextAreaElement
-  if (input) {
-    input.focus()
-  }
-}
-
-// 确认提交
-const confirmCommit = async () => {
-  if (!commitMessage.value.trim()) return
-  
-  showCommitDialog.value = false
-  isSyncing.value = true
-  syncProgress.value = 0
-  syncMessage.value = '正在准备提交...'
-  
-  try {
-    // 1. 首先拉取远端最新变更
-    syncProgress.value = 20
-    syncMessage.value = '正在拉取远端最新变更...'
-    await api.pullRebase()
-    
-    // 2. 提交本地变更（此时基于最新远端）
-    syncProgress.value = 50
-    syncMessage.value = '正在提交本地变更...'
-    await api.commitChanges(commitMessage.value.trim())
-    
-    // 3. 再次检查远端是否有新变更并 rebase
-    syncProgress.value = 70
-    syncMessage.value = '正在确保快进式推送...'
-    await api.pullRebase()
-    
-    // 4. 推送到远端（使用智能推送，自动处理非快进情况）
-    syncProgress.value = 85
-    syncMessage.value = '正在推送到远程仓库...'
-    await api.smartPushToRemote()
-    
-    syncProgress.value = 100
-    syncMessage.value = '本地变更提交完成'
-    
-    syncResult.value = {
-      success: true,
-      message: '本地变更提交成功'
-    }
-    
-    commitMessage.value = ''
-    
-    // 刷新数据
+const continueSyncConflict = async (files: ResolvedConflictFile[]) => {
+  const result = await api.continueGitSync(files)
+  if (result.outcome === 'success') {
+    isResolvingConflict.value = false
+    syncConflicts.value = []
+    pendingSync.value = null
+    syncResult.value = { success: true, message: result.message }
     await loadData()
-    
-  } catch (error) {
-    console.error('Local commit failed:', error)
-    syncResult.value = {
-      success: false,
-      message: `本地提交失败: ${error}`
-    }
-  } finally {
-    isSyncing.value = false
-    // 3秒后隐藏结果提示
-    setTimeout(() => {
-      syncResult.value = null
-    }, 3000)
+  } else {
+    syncResult.value = { success: false, message: result.message }
   }
 }
 
-// 取消提交
-const cancelCommit = () => {
-  showCommitDialog.value = false
-  commitMessage.value = ''
+const abortSyncConflict = async () => {
+  const result = await api.abortGitSync()
+  isResolvingConflict.value = false
+  syncConflicts.value = []
+  pendingSync.value = null
+  syncResult.value = { success: result.outcome === 'success', message: result.message }
+  await loadData()
 }
 
 
@@ -1033,6 +951,14 @@ onMounted(() => {
   min-width: 400px;
   max-width: 500px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.conflict-dialog {
+  width: min(1100px, 92vw);
+  max-height: 86vh;
+  overflow: auto;
+  background: #fff;
+  border-radius: 8px;
 }
 
 .commit-dialog h4 {
