@@ -865,7 +865,9 @@ pub async fn get_local_changes(state: State<'_, Arc<AppState>>) -> Result<Vec<cr
 }
 
 #[tauri::command]
-pub async fn perform_sync(state: State<'_, Arc<AppState>>) -> Result<crate::sync::SyncResult, String> {
+pub async fn perform_sync(
+    state: State<'_, Arc<AppState>>,
+) -> Result<crate::sync::types::GitSyncTransactionResult, String> {
     log_info!("Performing sync");
     println!("🚀 Starting sync operation...");
     
@@ -877,10 +879,6 @@ pub async fn perform_sync(state: State<'_, Arc<AppState>>) -> Result<crate::sync
     
     let notes_directory = config_manager.get_notes_directory();
     let sync_manager = crate::sync::GitSyncManager::new(notes_directory, git_config);
-    
-    // Initialize repository if needed
-    sync_manager.initialize_repository()
-        .map_err(|e| format!("Failed to initialize repository: {}", e))?;
     
     sync_manager.perform_sync()
         .map_err(|e| e.to_string())

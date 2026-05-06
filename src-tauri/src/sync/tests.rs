@@ -294,3 +294,72 @@ fn abort_git_sync_clears_pending_state() {
         .unwrap()
         .is_none());
 }
+
+#[test]
+fn manual_sync_pushes_local_change() {
+    let local = tempfile::TempDir::new().unwrap();
+    let remote = tempfile::TempDir::new().unwrap();
+    git2::Repository::init_bare(remote.path()).unwrap();
+    write_file(local.path(), "local.md", "initial\n");
+
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(remote.path(), "main"),
+    );
+    assert_eq!(
+        manager.setup_git_sync().unwrap().outcome,
+        crate::sync::types::GitSyncOutcome::Success
+    );
+
+    write_file(local.path(), "local.md", "changed\n");
+    let result = manager.perform_sync().unwrap();
+
+    assert_eq!(result.outcome, crate::sync::types::GitSyncOutcome::Success);
+    assert!(result.pushed);
+}
+
+#[test]
+fn manual_sync_blocks_when_pending_state_exists() {
+    let local = init_repo_dir();
+    let pending = crate::sync::types::PendingSyncState {
+        transaction_id: "pending".to_string(),
+        transaction_type: crate::sync::types::SyncTransactionType::Sync,
+        phase: crate::sync::types::SyncPhase::Conflicted,
+        target_branch: "main".to_string(),
+        temporary_branch: "xnote/local-sync/pending".to_string(),
+        remote_url: "https://example.invalid/repo.git".to_string(),
+        pre_transaction_head: None,
+        conflicts: vec![],
+    };
+    crate::sync::state::write_pending_state(local.path(), &pending).unwrap();
+
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(std::path::Path::new("/tmp/remote.git"), "main"),
+    );
+    let result = manager.perform_sync().unwrap();
+
+    assert_eq!(result.outcome, crate::sync::types::GitSyncOutcome::Blocked);
+}
+
+#[test]
+fn manual_sync_fails_when_remote_cannot_be_fetched() {
+    let local = tempfile::TempDir::new().unwrap();
+    let remote = tempfile::TempDir::new().unwrap();
+    git2::Repository::init_bare(remote.path()).unwrap();
+    write_file(local.path(), "local.md", "initial\n");
+
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(remote.path(), "main"),
+    );
+    assert_eq!(
+        manager.setup_git_sync().unwrap().outcome,
+        crate::sync::types::GitSyncOutcome::Success
+    );
+
+    drop(remote);
+    let result = manager.perform_sync();
+
+    assert!(result.is_err());
+}

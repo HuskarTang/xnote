@@ -281,6 +281,31 @@ impl GitSyncManager {
         Ok(branch_name)
     }
 
+    fn create_manual_sync_snapshot_branch(&self, repo: &Repository, prefix: &str) -> Result<String> {
+        let branch_name = format!("{}/{}", prefix, chrono::Utc::now().timestamp_millis());
+        if repo.head().is_err() {
+            if self.commit_workspace(repo, "XNote local sync snapshot")?.is_none() {
+                let signature = Signature::now("XNote User", "user@xnote.local")?;
+                let empty_tree_id = repo.treebuilder(None)?.write()?;
+                let empty_tree = repo.find_tree(empty_tree_id)?;
+                repo.commit(
+                    Some("HEAD"),
+                    &signature,
+                    &signature,
+                    "XNote initialize empty notes workspace",
+                    &empty_tree,
+                    &[],
+                )?;
+            }
+        }
+
+        let head = repo.head()?.peel_to_commit()?;
+        repo.branch(&branch_name, &head, false)?;
+        repo.set_head(&format!("refs/heads/{}", branch_name))?;
+        self.commit_workspace(repo, "XNote local sync snapshot")?;
+        Ok(branch_name)
+    }
+
     fn commit_workspace(&self, repo: &Repository, message: &str) -> Result<Option<git2::Oid>> {
         let mut index = repo.index()?;
         index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
@@ -295,6 +320,9 @@ impl GitSyncManager {
             .and_then(|head| head.peel_to_commit().ok())
             .into_iter()
             .collect::<Vec<_>>();
+        if parents.first().map(|parent| parent.tree_id()) == Some(tree_id) {
+            return Ok(None);
+        }
         let parent_refs = parents.iter().collect::<Vec<_>>();
         let oid = repo.commit(Some("HEAD"), &signature, &signature, message, &tree, &parent_refs)?;
         Ok(Some(oid))
@@ -411,6 +439,48 @@ impl GitSyncManager {
         let refspec = format!("refs/heads/{0}:refs/heads/{0}", branch_name);
         remote.push(&[&refspec], Some(&mut push_options))
             .with_context(|| format!("Failed to push branch {}", branch_name))
+    }
+
+    fn update_current_branch_from_remote(&self, repo: &Repository, branch_name: &str) -> Result<()> {
+        let remote_ref = format!("refs/remotes/origin/{}", branch_name);
+        if let Err(err) = self.fetch_branch(repo, branch_name) {
+            if !is_missing_remote_branch_error(&err) {
+                return Err(err);
+            }
+        }
+        let remote_commit = match repo.find_reference(&remote_ref) {
+            Ok(reference) => reference.peel_to_commit()?,
+            Err(_) => return Ok(()),
+        };
+        let local_commit = repo.head()?.peel_to_commit()?;
+        let (ahead, behind) = repo.graph_ahead_behind(local_commit.id(), remote_commit.id())?;
+
+        if behind == 0 {
+            return Ok(());
+        }
+
+        if ahead > 0 {
+            self.perform_rebase_operation(repo, &remote_commit)
+        } else {
+            let local_ref = format!("refs/heads/{}", branch_name);
+            repo.reference(&local_ref, remote_commit.id(), true, "XNote fast-forward sync branch")?;
+            repo.set_head(&local_ref)?;
+            let mut checkout = git2::build::CheckoutBuilder::new();
+            checkout.force();
+            repo.checkout_head(Some(&mut checkout))?;
+            Ok(())
+        }
+    }
+
+    fn branch_needs_push(&self, repo: &Repository, branch_name: &str) -> Result<bool> {
+        let local_commit = repo.head()?.peel_to_commit()?;
+        let remote_ref = format!("refs/remotes/origin/{}", branch_name);
+        let remote_commit = match repo.find_reference(&remote_ref) {
+            Ok(reference) => reference.peel_to_commit()?,
+            Err(_) => return Ok(true),
+        };
+        let (ahead, _) = repo.graph_ahead_behind(local_commit.id(), remote_commit.id())?;
+        Ok(ahead > 0)
     }
 
     pub fn get_pending_git_sync(&self) -> Result<Option<types::PendingSyncState>> {
@@ -1000,45 +1070,73 @@ impl GitSyncManager {
         result.context("Failed to clone with authentication")
     }
     
-    pub fn perform_sync(&self) -> Result<SyncResult> {
-        let repo = Repository::open(&self.repo_path)
-            .context("Failed to open repository")?;
+    pub fn perform_sync(&self) -> Result<types::GitSyncTransactionResult> {
+        if let Some(pending) = state::read_pending_state(&self.repo_path)? {
+            return Ok(types::GitSyncTransactionResult {
+                outcome: types::GitSyncOutcome::Blocked,
+                message: "A Git sync transaction is already pending".to_string(),
+                target_branch: Some(pending.target_branch.clone()),
+                temporary_branch: Some(pending.temporary_branch.clone()),
+                pushed: false,
+                conflicts: pending.conflicts.clone(),
+                pending: Some(pending),
+            });
+        }
 
-        // Fetch from remote
-        self.fetch_from_remote(&repo)?;
-        
-        // Check for conflicts and perform rebase
-        match self.perform_rebase(&repo) {
-            Ok(_) => {
-                // Check if there are local changes to push
-                let local_changes = self.count_local_changes(&repo)?;
-                if local_changes > 0 {
-                    self.push_to_remote()?;
+        let repo = self.ensure_repository()?;
+        self.ensure_origin(&repo)?;
+        let target_branch = self.resolve_target_branch(&repo)?;
+        let pre_transaction_head = repo
+            .head()
+            .ok()
+            .and_then(|head| head.target())
+            .map(|oid| oid.to_string());
+        let temp_branch = self.create_manual_sync_snapshot_branch(&repo, "xnote/local-sync")?;
+
+        self.checkout_or_create_tracking_branch(&repo, &target_branch)?;
+        self.update_current_branch_from_remote(&repo, &target_branch)?;
+
+        match self.merge_branch_into_head(&repo, &temp_branch) {
+            Ok(None) => {
+                let pushed = self.branch_needs_push(&repo, &target_branch)?;
+                if pushed {
+                    self.push_branch(&repo, &target_branch)?;
                 }
-                
-                Ok(SyncResult {
-                    success: true,
-                    message: "同步完成".to_string(),
-                    conflicts: None,
-                    changes_pushed: local_changes,
-                    changes_pulled: 0, // TODO: count pulled changes
+                let _ = repo.find_branch(&temp_branch, git2::BranchType::Local)
+                    .and_then(|mut branch| branch.delete());
+                Ok(types::GitSyncTransactionResult {
+                    outcome: types::GitSyncOutcome::Success,
+                    message: "Git sync completed".to_string(),
+                    target_branch: Some(target_branch),
+                    temporary_branch: None,
+                    pushed,
+                    conflicts: vec![],
+                    pending: None,
                 })
             }
-            Err(e) => {
-                // Check if it's a conflict error
-                if e.to_string().contains("conflict") {
-                    let conflicts = self.get_conflicts(&repo)?;
-                    Ok(SyncResult {
-                        success: false,
-                        message: "检测到冲突，需要手动解决".to_string(),
-                        conflicts: Some(conflicts),
-                        changes_pushed: 0,
-                        changes_pulled: 0,
-                    })
-                } else {
-                    Err(e)
-                }
+            Ok(Some(conflicts)) => {
+                let pending = types::PendingSyncState {
+                    transaction_id: format!("sync-{}", chrono::Utc::now().timestamp_millis()),
+                    transaction_type: types::SyncTransactionType::Sync,
+                    phase: types::SyncPhase::Conflicted,
+                    target_branch: target_branch.clone(),
+                    temporary_branch: temp_branch.clone(),
+                    remote_url: self.config.repository_url.clone(),
+                    pre_transaction_head,
+                    conflicts: conflicts.clone(),
+                };
+                state::write_pending_state(&self.repo_path, &pending)?;
+                Ok(types::GitSyncTransactionResult {
+                    outcome: types::GitSyncOutcome::Conflicted,
+                    message: "Git sync has conflicts".to_string(),
+                    target_branch: Some(target_branch),
+                    temporary_branch: Some(temp_branch),
+                    pushed: false,
+                    conflicts,
+                    pending: Some(pending),
+                })
             }
+            Err(err) => Err(err),
         }
     }
     
@@ -1703,6 +1801,13 @@ impl GitSyncManager {
 
 fn is_auth_failure(err: &git2::Error) -> bool {
     err.code() == git2::ErrorCode::Auth
+}
+
+fn is_missing_remote_branch_error(err: &anyhow::Error) -> bool {
+    let message = err.to_string();
+    message.contains("couldn't find remote ref")
+        || message.contains("could not find remote ref")
+        || message.contains("Remote branch not found")
 }
 
 fn sanitized_connection_error_message(repository_url: &str, err: &git2::Error) -> String {
