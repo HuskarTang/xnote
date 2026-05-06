@@ -771,6 +771,19 @@ pub async fn cleanup_unreferenced_attachments(state: State<'_, Arc<AppState>>) -
 }
 
 // Git Sync Commands
+fn git_sync_manager_from_state(
+    state: &State<'_, Arc<AppState>>,
+) -> Result<crate::sync::GitSyncManager, String> {
+    let config_manager = state.config_manager.lock().unwrap();
+    let git_config = config_manager
+        .get_config()
+        .git_sync
+        .clone()
+        .ok_or_else(|| "Git sync not configured".to_string())?;
+    let notes_directory = config_manager.get_notes_directory();
+    Ok(crate::sync::GitSyncManager::new(notes_directory, git_config))
+}
+
 #[tauri::command]
 pub async fn get_app_config(state: State<'_, Arc<AppState>>) -> Result<crate::config::AppConfig, String> {
     log_info!("Getting app config");
@@ -796,6 +809,75 @@ pub async fn update_git_sync_config(state: State<'_, Arc<AppState>>, config: cra
         .map_err(|e| e.to_string())?;
     
     Ok(true)
+}
+
+#[tauri::command]
+pub async fn test_git_connection(
+    state: State<'_, Arc<AppState>>,
+    config: crate::config::GitSyncConfig,
+) -> Result<crate::sync::types::GitConnectionTestResult, String> {
+    log_info!("Testing git connection");
+    let notes_directory = {
+        let config_manager = state.config_manager.lock().unwrap();
+        config_manager.get_notes_directory()
+    };
+    let sync_manager = crate::sync::GitSyncManager::new(notes_directory, config);
+
+    sync_manager.test_connection().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn setup_git_sync(
+    state: State<'_, Arc<AppState>>,
+    config: crate::config::GitSyncConfig,
+) -> Result<crate::sync::types::GitSyncTransactionResult, String> {
+    log_info!("Setting up git sync");
+    let notes_directory = {
+        let config_manager = state.config_manager.lock().unwrap();
+        config_manager.get_notes_directory()
+    };
+    let sync_manager = crate::sync::GitSyncManager::new(notes_directory, config.clone());
+    let result = sync_manager.setup_git_sync().map_err(|e| e.to_string())?;
+
+    if result.outcome != crate::sync::types::GitSyncOutcome::Blocked {
+        let mut config_manager = state.config_manager.lock().unwrap();
+        let mut app_config = config_manager.get_config().clone();
+        app_config.git_sync = Some(config);
+        config_manager.update_config(app_config).map_err(|e| e.to_string())?;
+    }
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn get_pending_git_sync(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Option<crate::sync::types::PendingSyncState>, String> {
+    log_info!("Getting pending git sync transaction");
+    let sync_manager = git_sync_manager_from_state(&state)?;
+
+    sync_manager.get_pending_git_sync().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn continue_git_sync(
+    state: State<'_, Arc<AppState>>,
+    resolved_files: Vec<crate::sync::types::ResolvedConflictFile>,
+) -> Result<crate::sync::types::GitSyncTransactionResult, String> {
+    log_info!("Continuing git sync transaction");
+    let sync_manager = git_sync_manager_from_state(&state)?;
+
+    sync_manager.continue_git_sync(resolved_files).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn abort_git_sync(
+    state: State<'_, Arc<AppState>>,
+) -> Result<crate::sync::types::GitSyncTransactionResult, String> {
+    log_info!("Aborting git sync transaction");
+    let sync_manager = git_sync_manager_from_state(&state)?;
+
+    sync_manager.abort_git_sync().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -870,15 +952,7 @@ pub async fn perform_sync(
 ) -> Result<crate::sync::types::GitSyncTransactionResult, String> {
     log_info!("Performing sync");
     println!("🚀 Starting sync operation...");
-    
-    let config_manager = state.config_manager.lock().unwrap();
-    let git_config = match &config_manager.get_config().git_sync {
-        Some(config) => config.clone(),
-        None => return Err("Git sync not configured".to_string()),
-    };
-    
-    let notes_directory = config_manager.get_notes_directory();
-    let sync_manager = crate::sync::GitSyncManager::new(notes_directory, git_config);
+    let sync_manager = git_sync_manager_from_state(&state)?;
     
     sync_manager.perform_sync()
         .map_err(|e| e.to_string())
