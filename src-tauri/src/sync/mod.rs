@@ -808,7 +808,10 @@ impl GitSyncManager {
         let git_dir = self.repo_path.join(".git");
         if !git_dir.exists() {
             if !self.config.repository_url.is_empty() {
-                log::info!("Cloning repository from: {}", self.config.repository_url);
+                log::info!(
+                    "Cloning repository from: {}",
+                    auth::safe_remote_label(&self.config.repository_url)
+                );
                 self.clone_to_existing_directory()
                     .context("Failed to clone repository to existing directory")?;
             } else {
@@ -840,10 +843,10 @@ impl GitSyncManager {
         
         // Clone to temporary directory with authentication
         log::info!("Cloning repository with authentication...");
-        log::info!("Repository URL: {}", self.config.repository_url);
+        log::info!("Repository URL: {}", auth::safe_remote_label(&self.config.repository_url));
         log::info!("Auth type: {}", self.config.auth_type);
         
-        println!("🔄 Cloning repository: {}", self.config.repository_url);
+        println!("🔄 Cloning repository: {}", auth::safe_remote_label(&self.config.repository_url));
         println!("🔐 Auth type: {}", self.config.auth_type);
         
         let _repo = self.clone_with_auth(&self.config.repository_url, &temp_dir)
@@ -961,12 +964,12 @@ impl GitSyncManager {
         
         callbacks.credentials(move |url, username_from_url, allowed_types| {
             log::info!("Authentication callback triggered");
-            log::info!("URL: {}", url);
+            log::info!("URL: {}", auth::safe_remote_label(url));
             log::info!("Username from URL: {:?}", username_from_url);
             log::info!("Allowed types: {:?}", allowed_types);
             log::info!("Config auth type: {}", config.auth_type);
             
-            println!("🔐 Authentication callback for: {}", url);
+            println!("🔐 Authentication callback for: {}", auth::safe_remote_label(url));
             println!("👤 Username: {:?}", username_from_url);
             println!("🔑 Auth type: {}", config.auth_type);
             
@@ -1150,7 +1153,7 @@ impl GitSyncManager {
         let config = self.config.clone();
         
         callbacks.credentials(move |url, username_from_url, _allowed_types| {
-            println!("🔐 Fetch authentication callback for: {}", url);
+            println!("🔐 Fetch authentication callback for: {}", auth::safe_remote_label(url));
             
             match config.auth_type.as_str() {
                 "basic" => {
@@ -1385,7 +1388,7 @@ impl GitSyncManager {
         let config = self.config.clone();
         
         callbacks.credentials(move |url, username_from_url, _allowed_types| {
-            println!("🔐 Push authentication callback for: {}", url);
+            println!("🔐 Push authentication callback for: {}", auth::safe_remote_label(url));
             
             match config.auth_type.as_str() {
                 "basic" => {
