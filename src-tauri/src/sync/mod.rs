@@ -4,6 +4,14 @@ use git2::{Repository, Signature, DiffOptions, RemoteCallbacks, Cred, PushOption
 use std::path::PathBuf;
 use chrono;
 
+pub mod auth;
+pub mod conflicts;
+pub mod state;
+pub mod types;
+
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncStatus {
     pub is_syncing: bool,
