@@ -1,8 +1,8 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use git2::Repository;
 use std::path::Path;
 
-use super::types::{GitConflictFile, GitConflictStatus};
+use super::types::{GitConflictFile, GitConflictStatus, ResolvedConflictFile};
 
 #[allow(dead_code)]
 pub fn extract_conflicts(repo: &Repository, _repo_path: &Path) -> Result<Vec<GitConflictFile>> {
@@ -68,4 +68,33 @@ pub fn extract_conflicts_from_index(
     }
 
     Ok(conflicts)
+}
+
+pub fn apply_resolved_files(
+    repo: &Repository,
+    repo_path: &Path,
+    files: &[ResolvedConflictFile],
+) -> Result<()> {
+    let mut index = repo.index()?;
+    for file in files {
+        let path = repo_path.join(&file.file_path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        match &file.final_content {
+            Some(content) => {
+                std::fs::write(&path, content)
+                    .with_context(|| format!("Failed to write resolved file: {}", file.file_path))?;
+                index.add_path(Path::new(&file.file_path))?;
+            }
+            None => {
+                if path.exists() {
+                    std::fs::remove_file(&path)?;
+                }
+                index.remove_path(Path::new(&file.file_path))?;
+            }
+        }
+    }
+    index.write()?;
+    Ok(())
 }

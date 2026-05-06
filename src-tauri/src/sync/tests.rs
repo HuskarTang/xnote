@@ -221,3 +221,76 @@ fn setup_git_sync_detects_same_file_conflict() {
         .unwrap()
         .is_some());
 }
+
+#[test]
+fn continue_git_sync_uses_resolved_local_content() {
+    let local = tempfile::TempDir::new().unwrap();
+    let remote_work = tempfile::TempDir::new().unwrap();
+    let remote = tempfile::TempDir::new().unwrap();
+    git2::Repository::init_bare(remote.path()).unwrap();
+
+    let remote_repo =
+        git2::Repository::clone(remote.path().to_str().unwrap(), remote_work.path()).unwrap();
+    write_file(remote_work.path(), "note.md", "remote\n");
+    commit_all(&remote_repo, "remote note");
+    remote_repo
+        .find_remote("origin")
+        .unwrap()
+        .push(&["refs/heads/master:refs/heads/main"], None)
+        .unwrap();
+
+    write_file(local.path(), "note.md", "local\n");
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(remote.path(), "main"),
+    );
+    let setup_result = manager.setup_git_sync().unwrap();
+    assert_eq!(
+        setup_result.outcome,
+        crate::sync::types::GitSyncOutcome::Conflicted
+    );
+    assert!(manager.get_pending_git_sync().unwrap().is_some());
+
+    let result = manager
+        .continue_git_sync(vec![crate::sync::types::ResolvedConflictFile {
+            file_path: "note.md".to_string(),
+            final_content: Some("final local content\n".to_string()),
+        }])
+        .unwrap();
+
+    assert_eq!(result.outcome, crate::sync::types::GitSyncOutcome::Success);
+    assert_eq!(
+        std::fs::read_to_string(local.path().join("note.md")).unwrap(),
+        "final local content\n"
+    );
+    assert!(crate::sync::state::read_pending_state(local.path())
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn abort_git_sync_clears_pending_state() {
+    let local = init_repo_dir();
+    let pending = crate::sync::types::PendingSyncState {
+        transaction_id: "abort".to_string(),
+        transaction_type: crate::sync::types::SyncTransactionType::Sync,
+        phase: crate::sync::types::SyncPhase::Conflicted,
+        target_branch: "main".to_string(),
+        temporary_branch: "xnote/local-sync/abort".to_string(),
+        remote_url: "https://example.invalid/repo.git".to_string(),
+        pre_transaction_head: None,
+        conflicts: vec![],
+    };
+    crate::sync::state::write_pending_state(local.path(), &pending).unwrap();
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(std::path::Path::new("/tmp/nonexistent.git"), "main"),
+    );
+
+    let result = manager.abort_git_sync().unwrap();
+
+    assert_eq!(result.outcome, crate::sync::types::GitSyncOutcome::Success);
+    assert!(crate::sync::state::read_pending_state(local.path())
+        .unwrap()
+        .is_none());
+}

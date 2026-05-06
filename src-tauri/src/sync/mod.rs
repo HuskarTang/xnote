@@ -413,6 +413,83 @@ impl GitSyncManager {
             .with_context(|| format!("Failed to push branch {}", branch_name))
     }
 
+    pub fn get_pending_git_sync(&self) -> Result<Option<types::PendingSyncState>> {
+        state::read_pending_state(&self.repo_path)
+    }
+
+    pub fn continue_git_sync(
+        &self,
+        resolved_files: Vec<types::ResolvedConflictFile>,
+    ) -> Result<types::GitSyncTransactionResult> {
+        let pending = match state::read_pending_state(&self.repo_path)? {
+            Some(pending) => pending,
+            None => {
+                return Ok(types::GitSyncTransactionResult {
+                    outcome: types::GitSyncOutcome::Blocked,
+                    message: "No pending Git sync transaction".to_string(),
+                    target_branch: None,
+                    temporary_branch: None,
+                    pushed: false,
+                    conflicts: vec![],
+                    pending: None,
+                });
+            }
+        };
+
+        let repo = Repository::open(&self.repo_path)?;
+        conflicts::apply_resolved_files(&repo, &self.repo_path, &resolved_files)?;
+        let _ = self.commit_workspace(&repo, "XNote resolve sync conflicts")?;
+        self.push_branch(&repo, &pending.target_branch)?;
+        state::clear_pending_state(&self.repo_path)?;
+
+        Ok(types::GitSyncTransactionResult {
+            outcome: types::GitSyncOutcome::Success,
+            message: "Git sync conflicts resolved".to_string(),
+            target_branch: Some(pending.target_branch),
+            temporary_branch: Some(pending.temporary_branch),
+            pushed: true,
+            conflicts: vec![],
+            pending: None,
+        })
+    }
+
+    pub fn abort_git_sync(&self) -> Result<types::GitSyncTransactionResult> {
+        let pending = match state::read_pending_state(&self.repo_path)? {
+            Some(pending) => pending,
+            None => {
+                return Ok(types::GitSyncTransactionResult {
+                    outcome: types::GitSyncOutcome::Blocked,
+                    message: "No pending Git sync transaction".to_string(),
+                    target_branch: None,
+                    temporary_branch: None,
+                    pushed: false,
+                    conflicts: vec![],
+                    pending: None,
+                });
+            }
+        };
+
+        let repo = Repository::open(&self.repo_path)?;
+        if let Some(head) = &pending.pre_transaction_head {
+            let oid = git2::Oid::from_str(head)?;
+            repo.set_head_detached(oid)?;
+            let mut checkout = git2::build::CheckoutBuilder::new();
+            checkout.force();
+            repo.checkout_head(Some(&mut checkout))?;
+        }
+        state::clear_pending_state(&self.repo_path)?;
+
+        Ok(types::GitSyncTransactionResult {
+            outcome: types::GitSyncOutcome::Success,
+            message: "Git sync transaction aborted".to_string(),
+            target_branch: Some(pending.target_branch),
+            temporary_branch: Some(pending.temporary_branch),
+            pushed: false,
+            conflicts: vec![],
+            pending: None,
+        })
+    }
+
     pub fn get_sync_status(&self) -> Result<SyncStatus> {
         let repo = Repository::open(&self.repo_path)
             .context("Failed to open repository")?;
