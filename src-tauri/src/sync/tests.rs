@@ -48,6 +48,20 @@ fn safe_remote_label_masks_token_in_url() {
 }
 
 #[test]
+fn default_ssh_key_path_prefers_id_rsa_from_user_ssh_directory() {
+    let home = tempfile::TempDir::new().unwrap();
+    let ssh_dir = home.path().join(".ssh");
+    std::fs::create_dir_all(&ssh_dir).unwrap();
+    let key_path = ssh_dir.join("id_rsa");
+    std::fs::write(&key_path, "private key").unwrap();
+
+    assert_eq!(
+        crate::sync::auth::default_ssh_key_path_in(home.path()),
+        Some(key_path)
+    );
+}
+
+#[test]
 fn connection_test_reports_missing_url_without_network() {
     let dir = tempfile::TempDir::new().unwrap();
     let config = crate::config::GitSyncConfig {
@@ -102,6 +116,14 @@ fn sanitized_connection_error_does_not_leak_url_credentials() {
     assert!(message.contains("https://example.invalid/repo.git"));
 }
 
+#[test]
+fn missing_remote_branch_detection_checks_wrapped_error_sources() {
+    let err = anyhow::anyhow!("couldn't find remote ref refs/heads/main")
+        .context("Failed to fetch branch main");
+
+    assert!(super::is_missing_remote_branch_error(&err));
+}
+
 fn write_file(dir: &std::path::Path, name: &str, content: &str) {
     std::fs::write(dir.join(name), content).unwrap();
 }
@@ -134,6 +156,25 @@ fn basic_config(remote: &std::path::Path, branch: &str) -> crate::config::GitSyn
         ssh_key_path: None,
         auth_type: "none".to_string(),
     }
+}
+
+fn local_branch_names(repo: &git2::Repository) -> Vec<String> {
+    repo.branches(Some(git2::BranchType::Local))
+        .unwrap()
+        .map(|branch| {
+            let (branch, _) = branch.unwrap();
+            branch.name().unwrap().unwrap().to_string()
+        })
+        .collect()
+}
+
+fn temporary_branch_names(repo: &git2::Repository) -> Vec<String> {
+    local_branch_names(repo)
+        .into_iter()
+        .filter(|name| {
+            name.starts_with("xnote/local-bootstrap/") || name.starts_with("xnote/local-sync/")
+        })
+        .collect()
 }
 
 #[test]
@@ -186,6 +227,24 @@ fn setup_git_sync_creates_configured_branch_when_remote_missing() {
 
     assert_eq!(result.outcome, crate::sync::types::GitSyncOutcome::Success);
     assert!(remote_repo.find_reference("refs/heads/topic").is_ok());
+}
+
+#[test]
+fn setup_git_sync_ignores_logs_directory_in_data_repo() {
+    let local = tempfile::TempDir::new().unwrap();
+    let remote = tempfile::TempDir::new().unwrap();
+    git2::Repository::init_bare(remote.path()).unwrap();
+    write_file(local.path(), "note.md", "# Note\n");
+
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(remote.path(), "main"),
+    );
+    let result = manager.setup_git_sync().unwrap();
+
+    assert_eq!(result.outcome, crate::sync::types::GitSyncOutcome::Success);
+    let gitignore = std::fs::read_to_string(local.path().join(".gitignore")).unwrap();
+    assert!(gitignore.lines().any(|line| line.trim() == "logs/"));
 }
 
 #[test]
@@ -349,6 +408,34 @@ fn manual_sync_pushes_local_change() {
 
     assert_eq!(result.outcome, crate::sync::types::GitSyncOutcome::Success);
     assert!(result.pushed);
+}
+
+#[test]
+fn manual_sync_removes_reachable_temporary_branches_after_success() {
+    let local = tempfile::TempDir::new().unwrap();
+    let remote = tempfile::TempDir::new().unwrap();
+    git2::Repository::init_bare(remote.path()).unwrap();
+    write_file(local.path(), "local.md", "initial\n");
+
+    let manager = crate::sync::GitSyncManager::new(
+        local.path().to_path_buf(),
+        basic_config(remote.path(), "main"),
+    );
+    assert_eq!(
+        manager.setup_git_sync().unwrap().outcome,
+        crate::sync::types::GitSyncOutcome::Success
+    );
+
+    let repo = git2::Repository::open(local.path()).unwrap();
+    let head = repo.head().unwrap().peel_to_commit().unwrap();
+    repo.branch("xnote/local-bootstrap/stale", &head, false).unwrap();
+    repo.branch("xnote/local-sync/stale", &head, false).unwrap();
+    write_file(local.path(), "local.md", "changed\n");
+
+    let result = manager.perform_sync().unwrap();
+
+    assert_eq!(result.outcome, crate::sync::types::GitSyncOutcome::Success);
+    assert!(temporary_branch_names(&repo).is_empty());
 }
 
 #[test]

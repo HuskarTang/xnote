@@ -190,6 +190,7 @@ impl GitSyncManager {
 
         let repo = self.ensure_repository()?;
         self.ensure_origin(&repo)?;
+        self.ensure_logs_ignored()?;
         let target_branch = self.resolve_target_branch(&repo)?;
         let temp_branch = self.create_snapshot_branch(&repo, "xnote/local-bootstrap")?;
         self.checkout_or_create_tracking_branch(&repo, &target_branch)?;
@@ -197,8 +198,7 @@ impl GitSyncManager {
         match self.merge_branch_into_head(&repo, &temp_branch) {
             Ok(None) => {
                 self.push_branch(&repo, &target_branch)?;
-                let _ = repo.find_branch(&temp_branch, git2::BranchType::Local)
-                    .and_then(|mut branch| branch.delete());
+                self.cleanup_reachable_temporary_branches(&repo, &target_branch, None)?;
                 Ok(types::GitSyncTransactionResult {
                     outcome: types::GitSyncOutcome::Success,
                     message: "Git sync setup completed".to_string(),
@@ -307,6 +307,37 @@ impl GitSyncManager {
         repo.set_head(&format!("refs/heads/{}", branch_name))?;
         self.commit_workspace(repo, "XNote local sync snapshot")?;
         Ok(branch_name)
+    }
+
+    fn ensure_logs_ignored(&self) -> Result<()> {
+        std::fs::create_dir_all(self.repo_path.join("logs")).with_context(|| {
+            format!(
+                "Failed to create logs directory in {}",
+                self.repo_path.display()
+            )
+        })?;
+
+        let gitignore_path = self.repo_path.join(".gitignore");
+        let mut content = match std::fs::read_to_string(&gitignore_path) {
+            Ok(content) => content,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(err) => return Err(err)
+                .with_context(|| format!("Failed to read {}", gitignore_path.display())),
+        };
+
+        let logs_ignored = content.lines().any(|line| {
+            matches!(line.trim(), "logs" | "logs/" | "/logs" | "/logs/")
+        });
+        if logs_ignored {
+            return Ok(());
+        }
+
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str("logs/\n");
+        std::fs::write(&gitignore_path, content)
+            .with_context(|| format!("Failed to write {}", gitignore_path.display()))
     }
 
     fn commit_workspace(&self, repo: &Repository, message: &str) -> Result<Option<git2::Oid>> {
@@ -490,6 +521,60 @@ impl GitSyncManager {
         Ok(ahead > 0)
     }
 
+    fn cleanup_reachable_temporary_branches(
+        &self,
+        repo: &Repository,
+        target_branch: &str,
+        keep_branch: Option<&str>,
+    ) -> Result<()> {
+        let target_ref = format!("refs/heads/{}", target_branch);
+        let target_commit = repo.find_reference(&target_ref)?.peel_to_commit()?;
+        let target_oid = target_commit.id();
+        let target_tree_id = target_commit.tree_id();
+        let mut branch_names = Vec::new();
+
+        for branch in repo.branches(Some(git2::BranchType::Local))? {
+            let (branch, _) = branch?;
+            if let Some(name) = branch.name()? {
+                branch_names.push(name.to_string());
+            }
+        }
+
+        for branch_name in branch_names {
+            if keep_branch == Some(branch_name.as_str())
+                || !is_temporary_branch_name(&branch_name)
+            {
+                continue;
+            }
+
+            let mut branch = repo.find_branch(&branch_name, git2::BranchType::Local)?;
+            let branch_commit = branch.get().peel_to_commit()?;
+            let branch_oid = branch_commit.id();
+            if branch_oid == target_oid
+                || branch_commit.tree_id() == target_tree_id
+                || repo.graph_descendant_of(target_oid, branch_oid)?
+            {
+                branch.delete()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn delete_temporary_branch(&self, repo: &Repository, branch_name: &str) -> Result<()> {
+        if !is_temporary_branch_name(branch_name) {
+            return Ok(());
+        }
+        match repo.find_branch(branch_name, git2::BranchType::Local) {
+            Ok(mut branch) => {
+                branch.delete()?;
+                Ok(())
+            }
+            Err(err) if err.code() == git2::ErrorCode::NotFound => Ok(()),
+            Err(err) => Err(err.into()),
+        }
+    }
+
     pub fn get_pending_git_sync(&self) -> Result<Option<types::PendingSyncState>> {
         state::read_pending_state(&self.repo_path)
     }
@@ -518,12 +603,13 @@ impl GitSyncManager {
         let _ = self.commit_workspace(&repo, "XNote resolve sync conflicts")?;
         self.push_branch(&repo, &pending.target_branch)?;
         state::clear_pending_state(&self.repo_path)?;
+        self.delete_temporary_branch(&repo, &pending.temporary_branch)?;
 
         Ok(types::GitSyncTransactionResult {
             outcome: types::GitSyncOutcome::Success,
             message: "Git sync conflicts resolved".to_string(),
             target_branch: Some(pending.target_branch),
-            temporary_branch: Some(pending.temporary_branch),
+            temporary_branch: None,
             pushed: true,
             conflicts: vec![],
             pending: None,
@@ -555,12 +641,13 @@ impl GitSyncManager {
             repo.checkout_head(Some(&mut checkout))?;
         }
         state::clear_pending_state(&self.repo_path)?;
+        self.delete_temporary_branch(&repo, &pending.temporary_branch)?;
 
         Ok(types::GitSyncTransactionResult {
             outcome: types::GitSyncOutcome::Success,
             message: "Git sync transaction aborted".to_string(),
             target_branch: Some(pending.target_branch),
-            temporary_branch: Some(pending.temporary_branch),
+            temporary_branch: None,
             pushed: false,
             conflicts: vec![],
             pending: None,
@@ -995,43 +1082,7 @@ impl GitSyncManager {
                     log::info!("Using SSH authentication");
                     let username = username_from_url.unwrap_or("git");
                     log::info!("SSH username: {}", username);
-                    
-                    if let Some(ssh_key_path) = &config.ssh_key_path {
-                        if !ssh_key_path.is_empty() {
-                            log::info!("Using specified SSH key: {}", ssh_key_path);
-                            println!("🔑 Using SSH key: {}", ssh_key_path);
-                            
-                            // Expand ~ to home directory
-                            let expanded_path = if ssh_key_path.starts_with("~/") {
-                                if let Some(home_dir) = dirs::home_dir() {
-                                    home_dir.join(&ssh_key_path[2..])
-                                } else {
-                                    std::path::PathBuf::from(ssh_key_path)
-                                }
-                            } else {
-                                std::path::PathBuf::from(ssh_key_path)
-                            };
-                            
-                            println!("🔍 Expanded SSH key path: {}", expanded_path.display());
-                            
-                            if expanded_path.exists() {
-                                println!("✅ SSH key file exists");
-                                Cred::ssh_key(username, None, &expanded_path, None)
-                            } else {
-                                println!("❌ SSH key file not found: {}", expanded_path.display());
-                                log::warn!("SSH key file not found, falling back to SSH agent");
-                                Cred::ssh_key_from_agent(username)
-                            }
-                        } else {
-                            log::info!("SSH key path is empty, using SSH agent");
-                            println!("🔑 Using SSH agent (empty key path)");
-                            Cred::ssh_key_from_agent(username)
-                        }
-                    } else {
-                        log::info!("Using SSH agent or default SSH key");
-                        println!("🔑 Using SSH agent (no key specified)");
-                        Cred::ssh_key_from_agent(username)
-                    }
+                    auth::ssh_credential(&config, username)
                 }
                 _ => {
                     log::info!("Using default authentication");
@@ -1095,6 +1146,7 @@ impl GitSyncManager {
 
         let repo = self.ensure_repository()?;
         self.ensure_origin(&repo)?;
+        self.ensure_logs_ignored()?;
         let target_branch = self.resolve_target_branch(&repo)?;
         let pre_transaction_head = repo
             .head()
@@ -1112,8 +1164,7 @@ impl GitSyncManager {
                 if pushed {
                     self.push_branch(&repo, &target_branch)?;
                 }
-                let _ = repo.find_branch(&temp_branch, git2::BranchType::Local)
-                    .and_then(|mut branch| branch.delete());
+                self.cleanup_reachable_temporary_branches(&repo, &target_branch, None)?;
                 Ok(types::GitSyncTransactionResult {
                     outcome: types::GitSyncOutcome::Success,
                     message: "Git sync completed".to_string(),
@@ -1175,30 +1226,7 @@ impl GitSyncManager {
                 "ssh" => {
                     let username = username_from_url.unwrap_or("git");
                     println!("🔑 Using SSH auth for fetch, username: {}", username);
-                    
-                    if let Some(ssh_key_path) = &config.ssh_key_path {
-                        if !ssh_key_path.is_empty() {
-                            // Expand ~ to home directory
-                            let expanded_path = if ssh_key_path.starts_with("~/") {
-                                if let Some(home_dir) = dirs::home_dir() {
-                                    home_dir.join(&ssh_key_path[2..])
-                                } else {
-                                    std::path::PathBuf::from(ssh_key_path)
-                                }
-                            } else {
-                                std::path::PathBuf::from(ssh_key_path)
-                            };
-                            
-                            println!("🔑 Using SSH key for fetch: {}", expanded_path.display());
-                            Cred::ssh_key(username, None, &expanded_path, None)
-                        } else {
-                            println!("🔑 Using SSH agent for fetch (empty key path)");
-                            Cred::ssh_key_from_agent(username)
-                        }
-                    } else {
-                        println!("🔑 Using SSH agent for fetch (no key specified)");
-                        Cred::ssh_key_from_agent(username)
-                    }
+                    auth::ssh_credential(&config, username)
                 }
                 _ => {
                     println!("🔑 Using default auth for fetch");
@@ -1410,30 +1438,7 @@ impl GitSyncManager {
                 "ssh" => {
                     let username = username_from_url.unwrap_or("git");
                     println!("🔑 Using SSH auth for push, username: {}", username);
-                    
-                    if let Some(ssh_key_path) = &config.ssh_key_path {
-                        if !ssh_key_path.is_empty() {
-                            // Expand ~ to home directory
-                            let expanded_path = if ssh_key_path.starts_with("~/") {
-                                if let Some(home_dir) = dirs::home_dir() {
-                                    home_dir.join(&ssh_key_path[2..])
-                                } else {
-                                    std::path::PathBuf::from(ssh_key_path)
-                                }
-                            } else {
-                                std::path::PathBuf::from(ssh_key_path)
-                            };
-                            
-                            println!("🔑 Using SSH key for push: {}", expanded_path.display());
-                            Cred::ssh_key(username, None, &expanded_path, None)
-                        } else {
-                            println!("🔑 Using SSH agent for push (empty key path)");
-                            Cred::ssh_key_from_agent(username)
-                        }
-                    } else {
-                        println!("🔑 Using SSH agent for push (no key specified)");
-                        Cred::ssh_key_from_agent(username)
-                    }
+                    auth::ssh_credential(&config, username)
                 }
                 _ => {
                     println!("🔑 Using default auth for push");
@@ -1814,10 +1819,17 @@ fn is_auth_failure(err: &git2::Error) -> bool {
 }
 
 fn is_missing_remote_branch_error(err: &anyhow::Error) -> bool {
-    let message = err.to_string();
-    message.contains("couldn't find remote ref")
-        || message.contains("could not find remote ref")
-        || message.contains("Remote branch not found")
+    err.chain().any(|source| {
+        let message = source.to_string();
+        message.contains("couldn't find remote ref")
+            || message.contains("could not find remote ref")
+            || (message.contains("remote ref") && message.contains("not found"))
+            || message.contains("Remote branch not found")
+    })
+}
+
+fn is_temporary_branch_name(name: &str) -> bool {
+    name.starts_with("xnote/local-bootstrap/") || name.starts_with("xnote/local-sync/")
 }
 
 fn sanitized_connection_error_message(repository_url: &str, err: &git2::Error) -> String {

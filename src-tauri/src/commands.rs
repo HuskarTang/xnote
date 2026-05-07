@@ -784,6 +784,16 @@ fn git_sync_manager_from_state(
     Ok(crate::sync::GitSyncManager::new(notes_directory, git_config))
 }
 
+fn format_anyhow_error(err: anyhow::Error) -> String {
+    let message = err
+        .chain()
+        .map(|source| source.to_string())
+        .collect::<Vec<_>>()
+        .join(": ");
+    log_error!("{}", message);
+    message
+}
+
 #[tauri::command]
 pub async fn get_app_config(state: State<'_, Arc<AppState>>) -> Result<crate::config::AppConfig, String> {
     log_info!("Getting app config");
@@ -823,7 +833,7 @@ pub async fn test_git_connection(
     };
     let sync_manager = crate::sync::GitSyncManager::new(notes_directory, config);
 
-    sync_manager.test_connection().map_err(|e| e.to_string())
+    sync_manager.test_connection().map_err(format_anyhow_error)
 }
 
 #[tauri::command]
@@ -837,7 +847,7 @@ pub async fn setup_git_sync(
         config_manager.get_notes_directory()
     };
     let sync_manager = crate::sync::GitSyncManager::new(notes_directory, config.clone());
-    let result = sync_manager.setup_git_sync().map_err(|e| e.to_string())?;
+    let result = sync_manager.setup_git_sync().map_err(format_anyhow_error)?;
 
     if result.outcome != crate::sync::types::GitSyncOutcome::Blocked {
         let mut config_manager = state.config_manager.lock().unwrap();
@@ -856,7 +866,7 @@ pub async fn get_pending_git_sync(
     log_info!("Getting pending git sync transaction");
     let sync_manager = git_sync_manager_from_state(&state)?;
 
-    sync_manager.get_pending_git_sync().map_err(|e| e.to_string())
+    sync_manager.get_pending_git_sync().map_err(format_anyhow_error)
 }
 
 #[tauri::command]
@@ -867,7 +877,7 @@ pub async fn continue_git_sync(
     log_info!("Continuing git sync transaction");
     let sync_manager = git_sync_manager_from_state(&state)?;
 
-    sync_manager.continue_git_sync(resolved_files).map_err(|e| e.to_string())
+    sync_manager.continue_git_sync(resolved_files).map_err(format_anyhow_error)
 }
 
 #[tauri::command]
@@ -877,7 +887,7 @@ pub async fn abort_git_sync(
     log_info!("Aborting git sync transaction");
     let sync_manager = git_sync_manager_from_state(&state)?;
 
-    sync_manager.abort_git_sync().map_err(|e| e.to_string())
+    sync_manager.abort_git_sync().map_err(format_anyhow_error)
 }
 
 #[tauri::command]
@@ -921,7 +931,7 @@ pub async fn get_sync_status(state: State<'_, Arc<AppState>>) -> Result<crate::s
     let sync_manager = crate::sync::GitSyncManager::new(notes_directory, git_config);
     
     let status = sync_manager.get_sync_status()
-        .map_err(|e| e.to_string())?;
+        .map_err(format_anyhow_error)?;
     
     println!("📊 Sync status: {} local changes, {} remote changes", 
              status.local_changes, status.remote_changes);
@@ -943,7 +953,7 @@ pub async fn get_local_changes(state: State<'_, Arc<AppState>>) -> Result<Vec<cr
     let sync_manager = crate::sync::GitSyncManager::new(notes_directory, git_config);
     
     sync_manager.get_local_changes()
-        .map_err(|e| e.to_string())
+        .map_err(format_anyhow_error)
 }
 
 #[tauri::command]
@@ -955,7 +965,7 @@ pub async fn perform_sync(
     let sync_manager = git_sync_manager_from_state(&state)?;
     
     sync_manager.perform_sync()
-        .map_err(|e| e.to_string())
+        .map_err(format_anyhow_error)
 }
 
 #[tauri::command]
@@ -1131,4 +1141,17 @@ pub async fn get_commit_history(state: State<'_, Arc<AppState>>) -> Result<Vec<c
     
     sync_manager.get_commit_history(10) // Get last 10 commits
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn format_anyhow_error_includes_error_sources() {
+        let err = anyhow::anyhow!("inner error").context("outer context");
+
+        assert_eq!(
+            super::format_anyhow_error(err),
+            "outer context: inner error"
+        );
+    }
 }
